@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { triggerPushNotification } from '../lib/firebase';
 import { restaurantInfo as fallbackRestaurantInfo } from '../data/restaurantInfo';
 import { categories as fallbackCategories } from '../data/categories';
 import { menuItems as fallbackMenuItems } from '../data/menuItems';
@@ -27,7 +28,7 @@ export async function getRestaurantSettings() {
         logo_url: '/variety-momo-logo.jpg',
         favicon_url: '/favicon.png',
         phonepe_upi_id: '7827423777@ybl',
-        phonepe_qr_url: null,
+        phonepe_qr_url: '/phonepe-demo-qr.svg',
         delivery_charge: 50,
         home_delivery_enabled: true,
         dine_in_enabled: true,
@@ -36,7 +37,10 @@ export async function getRestaurantSettings() {
       };
     }
 
-    return data;
+    return {
+      ...data,
+      phonepe_qr_url: data.phonepe_qr_url || '/phonepe-demo-qr.svg'
+    };
   } catch (err) {
     console.error('Error fetching restaurant settings:', err);
     return null;
@@ -47,7 +51,6 @@ export async function getRestaurantSettings() {
  * Update Restaurant Settings (Owner only, guarded by RLS)
  */
 export async function updateRestaurantSettings(settingsId, updates) {
-  // Validate percentages if provided
   if (
     updates.advance_payment_percentage !== undefined &&
     updates.cod_percentage !== undefined
@@ -84,7 +87,6 @@ export async function getCategories() {
     const { data, error } = await supabase
       .from('categories')
       .select('*')
-      .eq('is_active', true)
       .order('display_order', { ascending: true });
 
     if (error || !data || data.length === 0) {
@@ -98,14 +100,13 @@ export async function getCategories() {
 }
 
 /**
- * Fetch available Menu Items from Supabase
+ * Fetch available Menu Items from Supabase (Source of Truth)
  */
 export async function getMenuItems(categorySlug = null) {
   try {
     let query = supabase
       .from('menu_items')
       .select('*, categories(slug, name)')
-      .eq('is_available', true)
       .order('display_order', { ascending: true });
 
     const { data, error } = await query;
@@ -114,9 +115,10 @@ export async function getMenuItems(categorySlug = null) {
       return fallbackMenuItems;
     }
 
-    // Map database fields to the UI schema
+    // Map database fields to UI schema, ensuring both slug and UUID are retained
     const formatted = data.map((item) => ({
       id: item.slug || item.id,
+      dbId: item.id, // Supabase UUID required for order creation
       name: item.name,
       category: item.categories?.slug || 'chicken-momos',
       isVeg: item.is_vegetarian,
@@ -125,6 +127,7 @@ export async function getMenuItems(categorySlug = null) {
       image: item.image_url,
       isPopular: item.is_popular,
       isFeatured: item.is_popular,
+      isAvailable: item.is_available !== false,
       rating: 4.8,
       ratingCount: 200,
       variants: [
@@ -145,90 +148,55 @@ export async function getMenuItems(categorySlug = null) {
 }
 
 /**
- * Fetch active Offers from Supabase
+ * Fetch ALL menu items for Owner (including unavailable items)
  */
-export async function getOffers() {
-  try {
-    const { data, error } = await supabase
-      .from('offers')
-      .select('*')
-      .eq('is_active', true)
-      .order('created_at', { ascending: false });
-
-    if (error || !data || data.length === 0) {
-      return fallbackOffers;
-    }
-    return data;
-  } catch (err) {
-    console.error('Error fetching offers:', err);
-    return fallbackOffers;
-  }
-}
-
-/**
- * Fetch active Gallery items from Supabase
- */
-export async function getGallery() {
-  try {
-    const { data, error } = await supabase
-      .from('gallery')
-      .select('*')
-      .eq('is_active', true)
-      .order('display_order', { ascending: true });
-
-    if (error || !data || data.length === 0) {
-      return [];
-    }
-    return data;
-  } catch (err) {
-    console.error('Error fetching gallery:', err);
-    return [];
-  }
-}
-
-/**
- * Fetch approved customer reviews
- */
-export async function getApprovedReviews() {
-  try {
-    const { data, error } = await supabase
-      .from('reviews')
-      .select('*')
-      .eq('is_approved', true)
-      .order('created_at', { ascending: false });
-
-    if (error || !data || data.length === 0) {
-      return fallbackReviews;
-    }
-    return data.map((r) => ({
-      id: r.id,
-      name: r.customer_name,
-      rating: Number(r.rating),
-      review: r.review_text,
-      verified: true,
-      avatar:
-        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80'
-    }));
-  } catch (err) {
-    console.error('Error fetching reviews:', err);
-    return fallbackReviews;
-  }
-}
-
-/**
- * Submit a customer review for moderation (Public Insert, RLS guarded)
- */
-export async function submitReview({ customer_name, rating, review_text }) {
+export async function getAllMenuItemsForOwner() {
   const { data, error } = await supabase
-    .from('reviews')
-    .insert([
-      {
-        customer_name,
-        rating,
-        review_text,
-        is_approved: false // requires owner moderation
-      }
-    ])
+    .from('menu_items')
+    .select('*, categories(slug, name)')
+    .order('display_order', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Add Food Item (Owner only)
+ */
+export async function addMenuItem(itemData) {
+  const { data, error } = await supabase
+    .from('menu_items')
+    .insert([itemData])
+    .select('*, categories(slug, name)')
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Update Food Item (Owner only)
+ */
+export async function updateMenuItem(itemId, updates) {
+  const { data, error } = await supabase
+    .from('menu_items')
+    .update(updates)
+    .eq('id', itemId)
+    .select('*, categories(slug, name)')
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Toggle Food Item Availability (Owner only)
+ */
+export async function toggleMenuItemAvailability(itemId, isAvailable) {
+  const { data, error } = await supabase
+    .from('menu_items')
+    .update({ is_available: isAvailable })
+    .eq('id', itemId)
     .select()
     .single();
 
@@ -237,28 +205,626 @@ export async function submitReview({ customer_name, rating, review_text }) {
 }
 
 /**
- * Fetch active delivery zones for Mecheda
+ * Add Category (Owner only)
  */
-export async function getDeliveryZones() {
+export async function addCategory(categoryData) {
   const { data, error } = await supabase
-    .from('delivery_zones')
-    .select('*')
-    .eq('is_active', true)
-    .order('name');
+    .from('categories')
+    .insert([categoryData])
+    .select()
+    .single();
 
   if (error) throw error;
   return data;
 }
 
 /**
+ * Update Category (Owner only)
+ */
+export async function updateCategory(categoryId, updates) {
+  const { data, error } = await supabase
+    .from('categories')
+    .update(updates)
+    .eq('id', categoryId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Fetch active Delivery Zones for Mecheda
+ */
+export async function getDeliveryZones() {
+  try {
+    const { data, error } = await supabase
+      .from('delivery_zones')
+      .select('*')
+      .order('name');
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching delivery zones:', err);
+    return [];
+  }
+}
+
+/**
+ * Add Delivery Zone (Owner only)
+ */
+export async function addDeliveryZone(zoneData) {
+  const { data, error } = await supabase
+    .from('delivery_zones')
+    .insert([zoneData])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Update Delivery Zone (Owner only)
+ */
+export async function updateDeliveryZone(zoneId, updates) {
+  const { data, error } = await supabase
+    .from('delivery_zones')
+    .update(updates)
+    .eq('id', zoneId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Fetch active Tables for Dine-In
+ */
+export async function getTables() {
+  try {
+    const { data, error } = await supabase
+      .from('tables')
+      .select('id, table_number, qr_token, is_active')
+      .order('table_number');
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching tables:', err);
+    return [];
+  }
+}
+
+/**
+ * Add Table (Owner only)
+ */
+export async function addTable(tableData) {
+  const { data, error } = await supabase
+    .from('tables')
+    .insert([tableData])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Update Table (Owner only)
+ */
+export async function updateTable(tableId, updates) {
+  const { data, error } = await supabase
+    .from('tables')
+    .update(updates)
+    .eq('id', tableId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Validate Table QR Token securely
+ */
+export async function validateTableQR(qrToken) {
+  if (!qrToken) return { valid: false, error: 'No table QR token provided.' };
+  try {
+    const { data, error } = await supabase.rpc('validate_table_qr', {
+      p_qr_token: qrToken.trim()
+    });
+
+    if (error) {
+      console.error('validate_table_qr error:', error);
+      return { valid: false, error: error.message || 'Failed to validate table QR' };
+    }
+    return data || { valid: false, error: 'Invalid or inactive table QR.' };
+  } catch (err) {
+    console.error('Error in validateTableQR:', err);
+    return { valid: false, error: err.message || 'Network error validating table QR' };
+  }
+}
+
+/**
+ * Create Customer Order (Atomic, secure server-side recalculation RPC)
+ */
+export async function createCustomerOrder({
+  orderType,
+  customerName,
+  customerPhone,
+  items,
+  tableToken = null,
+  deliveryAddress = null,
+  paymentReference = null,
+  specialInstructions = null
+}) {
+  const { data, error } = await supabase.rpc('create_customer_order', {
+    p_order_type: orderType,
+    p_customer_name: customerName,
+    p_customer_phone: customerPhone,
+    p_items: items,
+    p_table_token: tableToken,
+    p_delivery_address: deliveryAddress,
+    p_payment_reference: paymentReference,
+    p_special_instructions: specialInstructions
+  });
+
+  if (error) {
+    console.error('create_customer_order error:', error);
+    throw new Error(error.message || 'Failed to place order.');
+  }
+
+  // Trigger FCM Push notification to Owner in background
+  if (data && data.order_number) {
+    triggerPushNotification({
+      title: `🔔 New ${orderType === 'DINE_IN' ? 'Dine-In' : 'Delivery'} Order #${data.order_number}`,
+      body: `${customerName || 'Customer'} placed an order of ₹${data.grand_total || '0'}. Click to view dashboard.`,
+      recipientType: 'OWNER',
+      orderId: data.order_id,
+      orderNumber: data.order_number,
+      url: '/owner-dashboard'
+    }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
+  }
+
+  return data;
+}
+
+/**
+ * Submit PhonePe payment reference for manual owner verification
+ */
+export async function submitOrderPayment({
+  orderNumber,
+  trackingToken,
+  paymentReference,
+  paymentAmount = null,
+  note = null
+}) {
+  const { data, error } = await supabase.rpc('submit_order_payment', {
+    p_order_number: orderNumber,
+    p_tracking_token: trackingToken,
+    p_payment_reference: paymentReference,
+    p_payment_amount: paymentAmount,
+    p_note: note
+  });
+
+  if (error) {
+    console.error('submit_order_payment error:', error);
+    throw new Error(error.message || 'Failed to submit payment reference.');
+  }
+
+  // Trigger FCM Push notification to Owner in background
+  triggerPushNotification({
+    title: `💳 Payment Submitted #${orderNumber}`,
+    body: `Ref "${paymentReference}" submitted for ₹${paymentAmount || ''}. Verification needed.`,
+    recipientType: 'OWNER',
+    orderId: data?.order_id || null,
+    orderNumber: orderNumber,
+    url: '/owner-dashboard'
+  }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
+
+  return data;
+}
+
+/**
+ * Securely fetch customer order details using order number + non-guessable tracking token
+ */
+export async function getCustomerOrder(orderNumber = null, trackingToken = null) {
+  const { data, error } = await supabase.rpc('get_customer_order', {
+    p_order_number: orderNumber || null,
+    p_tracking_token: trackingToken || null
+  });
+
+  if (error) {
+    console.error('get_customer_order error:', error);
+    throw new Error(error.message || 'Failed to load order tracking details.');
+  }
+
+  return data;
+}
+
+/**
+ * Subscribe to realtime status changes for a specific order
+ */
+export function subscribeToOrderUpdates(orderId, onUpdate) {
+  if (!orderId) return () => {};
+
+  const channel = supabase
+    .channel(`realtime-order-${orderId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'orders',
+        filter: `id=eq.${orderId}`
+      },
+      (payload) => {
+        if (onUpdate && payload.new) {
+          onUpdate(payload.new);
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
+/* ============================================================================
+   OWNER-SPECIFIC SECURE FUNCTIONS (STEP 5)
+============================================================================ */
+
+/**
+ * Get Owner Dashboard Statistics (Atomic RPC)
+ */
+export async function getOwnerDashboardStats() {
+  const { data, error } = await supabase.rpc('get_owner_dashboard_stats');
+  if (error) {
+    console.error('get_owner_dashboard_stats error:', error);
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Fetch Orders for Owner with filtering, search and pagination
+ */
+export async function getOwnerOrders({
+  status = 'ALL',
+  orderType = 'ALL',
+  search = '',
+  limit = 50,
+  offset = 0
+} = {}) {
+  let query = supabase
+    .from('orders')
+    .select(`
+      id,
+      order_number,
+      order_type,
+      customer_name,
+      customer_phone,
+      subtotal,
+      delivery_charge,
+      grand_total,
+      advance_amount,
+      cod_amount,
+      payment_status,
+      order_status,
+      payment_reference,
+      special_instructions,
+      created_at,
+      tables(table_number),
+      customer_addresses(address_line, area, landmark, city, pincode, delivery_zones(name)),
+      order_items(id, item_name_snapshot, unit_price_snapshot, quantity, line_total),
+      payments(id, amount, payment_status, customer_reference, submitted_at, verified_at)
+    `, { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (orderType && orderType !== 'ALL') {
+    query = query.eq('order_type', orderType);
+  }
+
+  if (status && status !== 'ALL') {
+    if (status === 'PAYMENT_VERIFICATION') {
+      query = query.eq('payment_status', 'SUBMITTED');
+    } else {
+      query = query.eq('order_status', status);
+    }
+  }
+
+  if (search && search.trim() !== '') {
+    const term = search.trim();
+    query = query.or(`order_number.ilike.%${term}%,customer_phone.ilike.%${term}%,customer_name.ilike.%${term}%`);
+  }
+
+  const { data, error, count } = await query;
+  if (error) throw error;
+
+  return { orders: data || [], totalCount: count || 0 };
+}
+
+/**
+ * Get full order details for Owner
+ */
+export async function getOwnerOrderDetails(orderId) {
+  const { data, error } = await supabase
+    .from('orders')
+    .select(`
+      *,
+      tables(table_number, qr_token),
+      customer_addresses(*, delivery_zones(name)),
+      order_items(*),
+      payments(*),
+      order_status_history(*)
+    `)
+    .eq('id', orderId)
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Verify Order Payment (Owner RPC)
+ */
+export async function verifyOrderPayment({ paymentId, orderId, note = null }) {
+  const { data, error } = await supabase.rpc('verify_order_payment', {
+    p_payment_id: paymentId,
+    p_order_id: orderId,
+    p_note: note
+  });
+
+  if (error) throw error;
+
+  // Trigger push notification to Customer
+  triggerPushNotification({
+    title: '✅ Payment Verified!',
+    body: 'Your payment was successfully verified by Variety Momo. Fresh momos are being prepared!',
+    recipientType: 'CUSTOMER',
+    orderId: orderId,
+    url: '/'
+  }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
+
+  return data;
+}
+
+/**
+ * Reject Order Payment (Owner RPC)
+ */
+export async function rejectOrderPayment({ paymentId, orderId, reason }) {
+  const { data, error } = await supabase.rpc('reject_order_payment', {
+    p_payment_id: paymentId,
+    p_order_id: orderId,
+    p_reason: reason
+  });
+
+  if (error) throw error;
+
+  // Trigger push notification to Customer
+  triggerPushNotification({
+    title: '❌ Payment Issue',
+    body: `Your payment reference could not be verified: ${reason}. Please update your payment reference.`,
+    recipientType: 'CUSTOMER',
+    orderId: orderId,
+    url: '/'
+  }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
+
+  return data;
+}
+
+/**
+ * Update Order Status (Owner RPC with state machine checks)
+ */
+export async function updateOrderStatus({ orderId, newStatus, note = null }) {
+  const { data, error } = await supabase.rpc('update_order_status', {
+    p_order_id: orderId,
+    p_new_status: newStatus,
+    p_note: note
+  });
+
+  if (error) throw error;
+
+  const statusMessages = {
+    CONFIRMED: 'Order confirmed! Kitchen is prepping ingredients.',
+    PREPARING: 'Your momos are being freshly steamed and prepared! 🥟🔥',
+    READY: 'Your momos are packed and ready hot! 🥟',
+    OUT_FOR_DELIVERY: 'Our delivery rider is on the way! 🛵💨',
+    SERVED: 'Your order has been served hot at your table! Enjoy! 🥟',
+    COMPLETED: 'Thank you for ordering with Variety Momo! Come again soon! ❤️'
+  };
+
+  // Trigger push notification to Customer
+  triggerPushNotification({
+    title: `📦 Order Update: ${newStatus.replace(/_/g, ' ')}`,
+    body: statusMessages[newStatus] || `Your order status changed to ${newStatus}.`,
+    recipientType: 'CUSTOMER',
+    orderId: orderId,
+    url: '/'
+  }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
+
+  return data;
+}
+
+/**
+ * Cancel Order (Owner RPC)
+ */
+export async function cancelOrder({ orderId, reason = null }) {
+  const { data, error } = await supabase.rpc('cancel_order', {
+    p_order_id: orderId,
+    p_reason: reason
+  });
+
+  if (error) throw error;
+
+  // Trigger push notification to Customer
+  triggerPushNotification({
+    title: '⚠️ Order Cancelled',
+    body: `Your order was cancelled${reason ? ': ' + reason : '.'}`,
+    recipientType: 'CUSTOMER',
+    orderId: orderId,
+    url: '/'
+  }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
+
+  return data;
+}
+
+/**
+ * Get Pending Payment Verifications Queue
+ */
+export async function getPaymentVerificationQueue() {
+  const { data, error } = await supabase
+    .from('payments')
+    .select(`
+      id,
+      order_id,
+      payment_type,
+      amount,
+      payment_status,
+      customer_reference,
+      submitted_at,
+      orders(
+        id,
+        order_number,
+        order_type,
+        customer_name,
+        customer_phone,
+        grand_total,
+        advance_amount,
+        cod_amount,
+        order_status
+      )
+    `)
+    .eq('payment_status', 'SUBMITTED')
+    .order('submitted_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Upload an asset to Supabase Storage (Owner only)
+ */
+export async function uploadStorageAsset(bucket, file, customPath = null) {
+  const fileExt = file.name.split('.').pop();
+  const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+  const filePath = customPath || fileName;
+
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .upload(filePath, file, {
+      cacheControl: '3600',
+      upsert: true
+    });
+
+  if (error) throw error;
+
+  const { data: { publicUrl } } = supabase.storage
+    .from(bucket)
+    .getPublicUrl(data.path);
+
+  return publicUrl;
+}
+
+/**
+ * Fetch Owner Notifications
+ */
+export async function getOwnerNotifications() {
+  const { data, error } = await supabase
+    .from('notifications')
+    .select('*')
+    .eq('recipient_type', 'OWNER')
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Mark a notification as read
+ */
+export async function markNotificationAsRead(notificationId) {
+  const { data, error } = await supabase
+    .from('notifications')
+    .update({ is_read: true })
+    .eq('id', notificationId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Mark all owner notifications as read
+ */
+export async function markAllNotificationsAsRead() {
+  const { data, error } = await supabase
+    .from('notifications')
+    .update({ is_read: true })
+    .eq('recipient_type', 'OWNER')
+    .eq('is_read', false);
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Subscribe to Realtime events on orders, payments, and notifications for Owner Dashboard
+ */
+export function subscribeToOwnerEvents({
+  onNewOrder,
+  onOrderUpdate,
+  onPaymentSubmitted,
+  onNotification
+}) {
+  const channel = supabase
+    .channel('owner-dashboard-realtime')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'orders' },
+      (payload) => {
+        if (onNewOrder) onNewOrder(payload.new);
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'orders' },
+      (payload) => {
+        if (onOrderUpdate) onOrderUpdate(payload.new);
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'payments' },
+      (payload) => {
+        if (onPaymentSubmitted) onPaymentSubmitted(payload);
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'notifications' },
+      (payload) => {
+        if (onNotification && payload.new?.recipient_type === 'OWNER') {
+          onNotification(payload.new);
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
+/**
  * Accurate server-aligned calculation for Grand Total, Advance & COD.
- * Rule:
- * For DINE_IN:
- *   delivery = 0, advance = 0, cod = 0, grand_total = subtotal
- * For HOME_DELIVERY:
- *   grand_total = subtotal + delivery_charge
- *   advance = grand_total * advance_percentage / 100
- *   cod = grand_total - advance
  */
 export function calculateOrderBreakdown({
   subtotal = 0,
@@ -295,4 +861,191 @@ export function calculateOrderBreakdown({
     codAmount,
     isAdvanceRequired: advanceAmount > 0
   };
+}
+
+/**
+ * Fetch active Offers from Supabase
+ */
+export async function getOffers() {
+  try {
+    const { data, error } = await supabase
+      .from('offers')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error || !data || data.length === 0) {
+      return fallbackOffers;
+    }
+    return data;
+  } catch (err) {
+    console.error('Error fetching offers:', err);
+    return fallbackOffers;
+  }
+}
+
+/**
+ * Add Offer (Owner only)
+ */
+export async function addOffer(offerData) {
+  const { data, error } = await supabase
+    .from('offers')
+    .insert([offerData])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Update Offer (Owner only)
+ */
+export async function updateOffer(offerId, updates) {
+  const { data, error } = await supabase
+    .from('offers')
+    .update(updates)
+    .eq('id', offerId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Fetch active Gallery items from Supabase
+ */
+export async function getGallery() {
+  try {
+    const { data, error } = await supabase
+      .from('gallery')
+      .select('*')
+      .order('display_order', { ascending: true });
+
+    if (error || !data || data.length === 0) {
+      return [];
+    }
+    return data;
+  } catch (err) {
+    console.error('Error fetching gallery:', err);
+    return [];
+  }
+}
+
+/**
+ * Add Gallery item (Owner only)
+ */
+export async function addGalleryItem(galleryData) {
+  const { data, error } = await supabase
+    .from('gallery')
+    .insert([galleryData])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Delete Gallery item (Owner only)
+ */
+export async function deleteGalleryItem(galleryId) {
+  const { data, error } = await supabase
+    .from('gallery')
+    .delete()
+    .eq('id', galleryId);
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Fetch approved customer reviews
+ */
+export async function getApprovedReviews() {
+  try {
+    const { data, error } = await supabase
+      .from('reviews')
+      .select('*')
+      .eq('is_approved', true)
+      .order('created_at', { ascending: false });
+
+    if (error || !data || data.length === 0) {
+      return fallbackReviews;
+    }
+    return data.map((r) => ({
+      id: r.id,
+      name: r.customer_name,
+      rating: Number(r.rating),
+      review: r.review_text,
+      verified: true,
+      avatar:
+        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80'
+    }));
+  } catch (err) {
+    console.error('Error fetching reviews:', err);
+    return fallbackReviews;
+  }
+}
+
+/**
+ * Fetch ALL reviews for Owner moderation
+ */
+export async function getAllReviewsForOwner() {
+  const { data, error } = await supabase
+    .from('reviews')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Approve / Toggle review (Owner only)
+ */
+export async function setReviewApproval(reviewId, isApproved) {
+  const { data, error } = await supabase
+    .from('reviews')
+    .update({ is_approved: isApproved })
+    .eq('id', reviewId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Delete review (Owner only)
+ */
+export async function deleteReview(reviewId) {
+  const { data, error } = await supabase
+    .from('reviews')
+    .delete()
+    .eq('id', reviewId);
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Submit a customer review for moderation (Public Insert, RLS guarded)
+ */
+export async function submitReview({ customer_name, rating, review_text }) {
+  const { data, error } = await supabase
+    .from('reviews')
+    .insert([
+      {
+        customer_name,
+        rating,
+        review_text,
+        is_approved: false
+      }
+    ])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
 }

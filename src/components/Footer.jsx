@@ -70,10 +70,18 @@ export default function Footer() {
           <div>
             © {new Date().getFullYear()} Variety Momo. All rights reserved.
           </div>
-          <div className="flex items-center gap-1">
-            <span>Made with</span>
-            <Heart className="w-3 h-3 text-red-500 fill-red-500" />
-            <span>for Momo lovers in Mecheda, West Bengal</span>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1">
+              <span>Made with</span>
+              <Heart className="w-3 h-3 text-red-500 fill-red-500" />
+              <span>for Momo lovers in Mecheda, West Bengal</span>
+            </div>
+            <a
+              href="/owner-login"
+              className="text-stone-600 hover:text-stone-400 transition-colors text-[10px]"
+            >
+              Owner Portal
+            </a>
           </div>
         </div>
       </div>

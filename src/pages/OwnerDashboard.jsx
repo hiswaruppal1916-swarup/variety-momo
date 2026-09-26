@@ -1,0 +1,427 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Menu,
+  Bell,
+  BellRing,
+  LogOut,
+  ShieldCheck,
+  Loader2,
+  AlertTriangle,
+  CheckCircle2,
+  ExternalLink
+} from 'lucide-react';
+import { getOwnerSession, logoutOwner } from '../services/authService';
+import {
+  getOwnerDashboardStats,
+  getPaymentVerificationQueue,
+  getOwnerNotifications,
+  subscribeToOwnerEvents
+} from '../services/restaurantService';
+import {
+  checkFcmSupport,
+  requestNotificationPermission,
+  getFcmToken,
+  onForegroundMessage,
+  registerPushSubscriptionInDatabase,
+  unregisterPushSubscription
+} from '../lib/firebase';
+
+import OwnerSidebar from '../components/owner/OwnerSidebar';
+import OverviewTab from '../components/owner/OverviewTab';
+import OrdersTab from '../components/owner/OrdersTab';
+import PaymentsTab from '../components/owner/PaymentsTab';
+import MenuTab from '../components/owner/MenuTab';
+import CategoriesTab from '../components/owner/CategoriesTab';
+import DeliveryZonesTab from '../components/owner/DeliveryZonesTab';
+import TablesTab from '../components/owner/TablesTab';
+import SettingsTab from '../components/owner/SettingsTab';
+import OffersTab from '../components/owner/OffersTab';
+import GalleryTab from '../components/owner/GalleryTab';
+import ReviewsTab from '../components/owner/ReviewsTab';
+import NotificationsTab from '../components/owner/NotificationsTab';
+
+export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [ownerProfile, setOwnerProfile] = useState(null);
+  const [activeTab, setActiveTab] = useState(initialOrderId ? 'orders' : 'overview');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Live Stats & Realtime
+  const [stats, setStats] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [pendingVerifications, setPendingVerifications] = useState(0);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+
+  // FCM Push Notifications State
+  const [fcmSupported, setFcmSupported] = useState(false);
+  const [pushPermission, setPushPermission] = useState('default');
+  const [pushEnabling, setPushEnabling] = useState(false);
+  const [ownerFcmToken, setOwnerFcmToken] = useState(null);
+
+  // In-app Realtime Toast Banner (no aggressive browser alerts)
+  const [toastAlert, setToastAlert] = useState(null);
+
+  // 1. Authenticate Owner
+  useEffect(() => {
+    let isMounted = true;
+    async function checkAuth() {
+      try {
+        const session = await getOwnerSession();
+        if (!isMounted) return;
+
+        if (!session || !session.profile || session.profile.role !== 'OWNER') {
+          // Strictly redirect non-owner away
+          if (onNavigate) {
+            onNavigate('owner-login');
+          } else {
+            window.location.pathname = '/owner-login';
+          }
+          return;
+        }
+
+        setOwnerProfile(session.profile);
+      } catch (err) {
+        console.error('Owner auth verification error:', err);
+        if (onNavigate) {
+          onNavigate('owner-login');
+        } else {
+          window.location.pathname = '/owner-login';
+        }
+      } finally {
+        if (isMounted) setCheckingAuth(false);
+      }
+    }
+
+    checkAuth();
+    return () => {
+      isMounted = false;
+    };
+  }, [onNavigate]);
+
+  // 2. Fetch Live Stats & Verification Counts
+  const loadDashboardData = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const [s, queue, notifs] = await Promise.all([
+        getOwnerDashboardStats(),
+        getPaymentVerificationQueue(),
+        getOwnerNotifications()
+      ]);
+      setStats(s);
+      setPendingVerifications(queue.length);
+      setUnreadNotifications(notifs.filter((n) => !n.is_read).length);
+    } catch (err) {
+      console.error('Failed to load dashboard metrics:', err);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (ownerProfile) {
+      loadDashboardData();
+    }
+  }, [ownerProfile, loadDashboardData]);
+
+  // 3. Realtime Subscription to Orders, Payments & Notifications
+  useEffect(() => {
+    if (!ownerProfile) return;
+
+    const cleanupSubscription = subscribeToOwnerEvents({
+      onNewOrder: (order) => {
+        loadDashboardData();
+        showToast(`New Order Received! #${order.order_number} (${order.order_type})`);
+      },
+      onOrderUpdate: () => {
+        loadDashboardData();
+      },
+      onPaymentSubmitted: () => {
+        loadDashboardData();
+        showToast('New PhonePe payment submitted! Verification required.');
+      },
+      onNotification: (notif) => {
+        loadDashboardData();
+        showToast(notif.title || 'New order alert');
+      }
+    });
+
+    return () => {
+      cleanupSubscription();
+    };
+  }, [ownerProfile, loadDashboardData]);
+
+  // 4. FCM Push Notifications Lifecycle & Foreground Listener
+  useEffect(() => {
+    if (!ownerProfile) return;
+
+    let mounted = true;
+    checkFcmSupport().then((supported) => {
+      if (!mounted) return;
+      setFcmSupported(supported);
+      if (supported && typeof window !== 'undefined' && 'Notification' in window) {
+        setPushPermission(Notification.permission);
+        if (Notification.permission === 'granted') {
+          getFcmToken().then(async (token) => {
+            if (!mounted) return;
+            if (token) {
+              setOwnerFcmToken(token);
+              await registerPushSubscriptionInDatabase({
+                userType: 'OWNER',
+                fcmToken: token
+              });
+            }
+          });
+        }
+      }
+    });
+
+    const unsubscribeForeground = onForegroundMessage((payload) => {
+      const title = payload.notification?.title || payload.data?.title || 'Variety Momo Alert';
+      const body = payload.notification?.body || payload.data?.body || '';
+      showToast(`${title}: ${body}`);
+      loadDashboardData();
+    });
+
+    return () => {
+      mounted = false;
+      if (typeof unsubscribeForeground === 'function') unsubscribeForeground();
+    };
+  }, [ownerProfile, loadDashboardData]);
+
+  const handleEnablePush = async () => {
+    setPushEnabling(true);
+    try {
+      const perm = await requestNotificationPermission();
+      setPushPermission(perm);
+      if (perm === 'granted') {
+        const token = await getFcmToken();
+        if (token) {
+          setOwnerFcmToken(token);
+          await registerPushSubscriptionInDatabase({
+            userType: 'OWNER',
+            fcmToken: token
+          });
+          showToast('Push alerts enabled for this device!');
+        } else {
+          showToast('Notification permission granted.');
+        }
+      } else if (perm === 'denied') {
+        showToast('Push notifications blocked in browser settings.');
+      }
+    } catch (err) {
+      console.error('Error enabling push:', err);
+    } finally {
+      setPushEnabling(false);
+    }
+  };
+
+  const showToast = (message) => {
+    setToastAlert(message);
+    setTimeout(() => {
+      setToastAlert(null);
+    }, 5000);
+  };
+
+  const handleLogout = async () => {
+    try {
+      if (ownerFcmToken) {
+        await unregisterPushSubscription(ownerFcmToken);
+      }
+      await logoutOwner();
+      if (onNavigate) {
+        onNavigate('owner-login');
+      } else {
+        window.location.pathname = '/owner-login';
+      }
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+  };
+
+  const handleNavigateHome = () => {
+    if (onNavigate) {
+      onNavigate('home');
+    } else {
+      window.location.pathname = '';
+    }
+  };
+
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-stone-950 flex flex-col items-center justify-center text-white gap-3 p-4">
+        <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
+        <p className="text-xs text-stone-400 font-medium">Verifying owner credentials...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col font-sans">
+      {/* Sidebar Navigation */}
+      <OwnerSidebar
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        onLogout={handleLogout}
+        onNavigateHome={handleNavigateHome}
+        stats={stats}
+        unreadCount={unreadNotifications}
+        pendingVerifications={pendingVerifications}
+        isMobileOpen={isMobileMenuOpen}
+        setIsMobileOpen={setIsMobileMenuOpen}
+      />
+
+      {/* Main Content Area */}
+      <div className="lg:pl-72 flex-1 flex flex-col">
+        {/* Top Header Bar */}
+        <header className="sticky top-0 z-30 bg-stone-950/90 backdrop-blur-md border-b border-stone-800 px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="lg:hidden p-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-300 hover:text-white"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-outfit font-extrabold text-base sm:text-lg text-white tracking-tight">
+                  Variety Momo • Management Console
+                </span>
+                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                  <ShieldCheck className="w-3 h-3" />
+                  <span>OWNER VERIFIED</span>
+                </span>
+              </div>
+              <div className="text-[11px] text-stone-400">
+                Logged in as <strong className="text-stone-300">{ownerProfile?.email}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Notifications Shortcut */}
+            <button
+              onClick={() => setActiveTab('notifications')}
+              className="relative p-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-300 border border-stone-800 transition-colors"
+              title="Notifications"
+            >
+              <Bell className="w-4 h-4" />
+              {unreadNotifications > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center">
+                  {unreadNotifications}
+                </span>
+              )}
+            </button>
+
+            {/* Push Notifications Status / Enable Button */}
+            {fcmSupported && (
+              pushPermission === 'granted' ? (
+                <span
+                  title="Browser Push Alerts Active"
+                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold"
+                >
+                  <BellRing className="w-3.5 h-3.5" />
+                  <span className="hidden md:inline">Push Active</span>
+                </span>
+              ) : (
+                <button
+                  onClick={handleEnablePush}
+                  disabled={pushEnabling}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-bold transition-all"
+                  title="Enable Push Notifications"
+                >
+                  <Bell className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-[11px]">{pushEnabling ? 'Enabling...' : 'Enable Push Alerts'}</span>
+                </button>
+              )
+            )}
+
+            {/* Quick Public View */}
+            <button
+              onClick={handleNavigateHome}
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-300 text-xs font-semibold border border-stone-800 transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Public Store</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Realtime Toast Notification Banner */}
+        {toastAlert && (
+          <div className="m-4 p-3.5 rounded-2xl bg-brand-600 text-white shadow-xl shadow-brand-950/40 flex items-center justify-between gap-3 animate-fade-in border border-brand-400/40">
+            <div className="flex items-center gap-2.5 text-xs font-bold">
+              <Bell className="w-4 h-4 animate-bounce" />
+              <span>{toastAlert}</span>
+            </div>
+            <button
+              onClick={() => setToastAlert(null)}
+              className="text-white/80 hover:text-white text-xs font-bold px-2 py-0.5 rounded-md bg-black/20"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* Tab Content Display */}
+        <main className="p-4 sm:p-6 lg:p-8 flex-1 max-w-7xl w-full mx-auto">
+          {activeTab === 'overview' && (
+            <OverviewTab
+              stats={stats}
+              loading={statsLoading}
+              onRefresh={loadDashboardData}
+              onSelectTab={setActiveTab}
+            />
+          )}
+
+          {activeTab === 'orders' && (
+            <OrdersTab onSelectTab={setActiveTab} initialOrderId={initialOrderId} />
+          )}
+
+          {activeTab === 'payments' && (
+            <PaymentsTab onVerificationChanged={loadDashboardData} />
+          )}
+
+          {activeTab === 'menu' && (
+            <MenuTab />
+          )}
+
+          {activeTab === 'categories' && (
+            <CategoriesTab />
+          )}
+
+          {activeTab === 'delivery-zones' && (
+            <DeliveryZonesTab />
+          )}
+
+          {activeTab === 'tables' && (
+            <TablesTab />
+          )}
+
+          {activeTab === 'settings' && (
+            <SettingsTab />
+          )}
+
+          {activeTab === 'offers' && (
+            <OffersTab />
+          )}
+
+          {activeTab === 'gallery' && (
+            <GalleryTab />
+          )}
+
+          {activeTab === 'reviews' && (
+            <ReviewsTab />
+          )}
+
+          {activeTab === 'notifications' && (
+            <NotificationsTab
+              onSelectTab={setActiveTab}
+              onNotificationsUpdated={loadDashboardData}
+            />
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}

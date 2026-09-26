@@ -28,14 +28,17 @@ export default function FoodDetailModal() {
     selectedFoodItem.variants?.find(v => v.id === selectedVariantId) ||
     selectedFoodItem.variants?.[0] || { id: 'default', name: 'Plate', price: selectedFoodItem.price || 0 };
 
+  const isAvailable = selectedFoodItem?.isAvailable !== false && selectedFoodItem?.is_available !== false;
   const totalPrice = currentVariant.price * qty;
 
   const handleAddToCart = () => {
+    if (!isAvailable) return;
     addToCart(selectedFoodItem, currentVariant.id, qty);
     closeFoodDetail();
   };
 
   const handleBuyNow = () => {
+    if (!isAvailable) return;
     addToCart(selectedFoodItem, currentVariant.id, qty);
     closeFoodDetail();
     openCart();
@@ -201,25 +204,31 @@ export default function FoodDetailModal() {
             </div>
           </div>
 
-          <div className="flex-1 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleAddToCart}
-              className="flex-1 py-3 px-3 rounded-xl bg-white border-2 border-brand-600 text-brand-600 hover:bg-brand-50 active:scale-95 font-outfit font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all shadow-xs"
-            >
-              <ShoppingBag className="w-4 h-4" />
-              <span>Add to Cart</span>
-            </button>
+          {!isAvailable ? (
+            <div className="flex-1 py-3 px-4 rounded-xl bg-stone-100 text-stone-500 font-outfit font-bold text-xs uppercase tracking-wider text-center border border-stone-200">
+              Currently Unavailable
+            </div>
+          ) : (
+            <div className="flex-1 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleAddToCart}
+                className="flex-1 py-3 px-3 rounded-xl bg-white border-2 border-brand-600 text-brand-600 hover:bg-brand-50 active:scale-95 font-outfit font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all shadow-xs"
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span>Add to Cart</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={handleBuyNow}
-              className="flex-1 py-3 px-3 rounded-xl bg-brand-600 hover:bg-brand-700 active:scale-95 text-white font-outfit font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all shadow-md shadow-brand-600/30"
-            >
-              <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
-              <span>Buy Now</span>
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={handleBuyNow}
+                className="flex-1 py-3 px-3 rounded-xl bg-brand-600 hover:bg-brand-700 active:scale-95 text-white font-outfit font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all shadow-md shadow-brand-600/30"
+              >
+                <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
+                <span>Buy Now</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

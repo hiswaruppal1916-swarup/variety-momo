@@ -23,13 +23,17 @@ export default function FoodCard({ item }) {
   const currentCartKey = getItemCartKey(item.id, currentVariant.id);
   const quantityInCart = getItemQuantity(item.id, currentVariant.id);
 
+  const isAvailable = item.isAvailable !== false && item.is_available !== false;
+
   const handleAdd = (e) => {
     e.stopPropagation();
+    if (!isAvailable) return;
     addToCart(item, currentVariant.id, 1);
   };
 
   const handleIncrement = (e) => {
     e.stopPropagation();
+    if (!isAvailable) return;
     updateQuantity(currentCartKey, quantityInCart + 1);
   };
 
@@ -40,6 +44,7 @@ export default function FoodCard({ item }) {
 
   const handleBuyNow = (e) => {
     e.stopPropagation();
+    if (!isAvailable) return;
     if (quantityInCart === 0) {
       addToCart(item, currentVariant.id, 1);
     }
@@ -72,10 +77,18 @@ export default function FoodCard({ item }) {
           </div>
         )}
 
-        {/* Quick View Tag */}
-        <div className="absolute inset-x-0 bottom-0 py-1 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex justify-center">
-          <span className="text-[11px] text-white font-medium">Click to view details</span>
-        </div>
+        {/* Quick View Tag or Unavailable Overlay */}
+        {!isAvailable ? (
+          <div className="absolute inset-0 bg-stone-950/50 backdrop-blur-[1px] flex items-center justify-center p-2 z-20">
+            <span className="px-2.5 py-1 rounded-full bg-red-600/90 text-white font-bold text-[10px] uppercase tracking-wider shadow-md">
+              Currently Unavailable
+            </span>
+          </div>
+        ) : (
+          <div className="absolute inset-x-0 bottom-0 py-1 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex justify-center">
+            <span className="text-[11px] text-white font-medium">Click to view details</span>
+          </div>
+        )}
       </div>
 
       {/* Content Section */}
@@ -139,49 +152,55 @@ export default function FoodCard({ item }) {
               </div>
             </div>
 
-            {/* Stepper or ADD Button */}
-            <div className="flex items-center gap-1.5">
-              {quantityInCart === 0 ? (
-                <button
-                  onClick={handleAdd}
-                  className="px-3 sm:px-4 py-1.5 rounded-lg bg-white border border-brand-500 text-brand-600 hover:bg-brand-50 font-outfit font-bold text-xs uppercase tracking-wider shadow-xs hover:shadow transition-all active:scale-95 flex items-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                  <span>ADD</span>
-                </button>
-              ) : (
-                <div
-                  onClick={(e) => e.stopPropagation()}
-                  className="flex items-center rounded-lg bg-brand-600 text-white font-outfit font-bold text-xs shadow-xs"
-                >
+            {/* Stepper or ADD Button & Buy Now OR Unavailable State */}
+            {!isAvailable ? (
+              <span className="px-2.5 py-1.5 rounded-lg bg-stone-100 text-stone-400 font-bold text-[11px] uppercase tracking-wider">
+                Unavailable
+              </span>
+            ) : (
+              <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                {quantityInCart === 0 ? (
                   <button
-                    onClick={handleDecrement}
-                    className="px-2 py-1.5 hover:bg-brand-700 rounded-l-lg transition-colors active:scale-90"
-                    aria-label="Decrease quantity"
+                    onClick={handleAdd}
+                    className="px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-white border border-brand-500 text-brand-600 hover:bg-brand-50 font-outfit font-bold text-[11px] sm:text-xs uppercase tracking-wider shadow-xs hover:shadow transition-all active:scale-95 flex items-center gap-1"
                   >
-                    <Minus className="w-3 h-3 stroke-[2.5]" />
+                    <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>ADD</span>
                   </button>
-                  <span className="px-2 font-black">{quantityInCart}</span>
-                  <button
-                    onClick={handleIncrement}
-                    className="px-2 py-1.5 hover:bg-brand-700 rounded-r-lg transition-colors active:scale-90"
-                    aria-label="Increase quantity"
+                ) : (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex items-center rounded-lg bg-brand-600 text-white font-outfit font-bold text-xs shadow-xs"
                   >
-                    <Plus className="w-3 h-3 stroke-[2.5]" />
-                  </button>
-                </div>
-              )}
+                    <button
+                      onClick={handleDecrement}
+                      className="px-1.5 sm:px-2 py-1.5 hover:bg-brand-700 rounded-l-lg transition-colors active:scale-90"
+                      aria-label="Decrease quantity"
+                    >
+                      <Minus className="w-3 h-3 stroke-[2.5]" />
+                    </button>
+                    <span className="px-1.5 sm:px-2 font-black">{quantityInCart}</span>
+                    <button
+                      onClick={handleIncrement}
+                      className="px-1.5 sm:px-2 py-1.5 hover:bg-brand-700 rounded-r-lg transition-colors active:scale-90"
+                      aria-label="Increase quantity"
+                    >
+                      <Plus className="w-3 h-3 stroke-[2.5]" />
+                    </button>
+                  </div>
+                )}
 
-              {/* Buy Now Button (Flipkart Style) */}
-              <button
-                onClick={handleBuyNow}
-                title="Quick checkout"
-                className="hidden xs:flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-stone-900 hover:bg-black text-white text-xs font-semibold shadow-xs active:scale-95 transition-all"
-              >
-                <Zap className="w-3 h-3 text-amberGold fill-amberGold" />
-                <span className="text-[11px]">Buy</span>
-              </button>
-            </div>
+                {/* Buy Now Button (Always visible on all screens) */}
+                <button
+                  onClick={handleBuyNow}
+                  title="Buy Now - Instant checkout"
+                  className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg bg-stone-900 hover:bg-black text-white text-[11px] sm:text-xs font-semibold shadow-xs active:scale-95 transition-all"
+                >
+                  <Zap className="w-3 h-3 text-amberGold fill-amberGold" />
+                  <span>Buy</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -1,0 +1,176 @@
+// Variety Momo — Unified PWA & Firebase Cloud Messaging Service Worker
+// Provides:
+// 1. Offline caching & PWA installability
+// 2. Firebase Cloud Messaging (FCM) push notifications for Owner & Customer
+
+importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
+
+const CACHE_NAME = 'variety-momo-v1';
+const PRECACHE_ASSETS = [
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/variety-momo-logo.jpg',
+  '/favicon.ico',
+  '/favicon-96x96.png',
+  '/favicon-128x128.png',
+  '/apple-touch-icon.png',
+  '/pwa-192x192.png',
+  '/pwa-512x512.png'
+];
+
+// Public Firebase Web Configuration (Client worker safe)
+const firebaseConfig = {
+  apiKey: "AIzaSyDdTxJAq77F3At4WkSVsMQ2q67RcHKjKCM",
+  authDomain: "variety-momo.firebaseapp.com",
+  projectId: "variety-momo",
+  storageBucket: "variety-momo.firebasestorage.app",
+  messagingSenderId: "1017043259551",
+  appId: "1:1017043259551:web:9c59d7ae4c5630442e52aa",
+  measurementId: "G-F1NW7HZMGF"
+};
+
+firebase.initializeApp(firebaseConfig);
+
+let messaging = null;
+try {
+  messaging = firebase.messaging();
+} catch (err) {
+  console.warn('[FCM-SW] Firebase messaging unsupported in this context:', err);
+}
+
+if (messaging) {
+  // Handle background notifications when app tab is closed or backgrounded
+  messaging.onBackgroundMessage((payload) => {
+    console.log('[FCM-SW] Received background message:', payload);
+
+    const title = payload.notification?.title || payload.data?.title || 'Variety Momo';
+    const body = payload.notification?.body || payload.data?.body || 'You have an update on your order.';
+    const clickAction = payload.data?.click_action || payload.fcmOptions?.link || '/';
+    const orderNumber = payload.data?.order_number || '';
+
+    const notificationOptions = {
+      body,
+      icon: '/variety-momo-logo.jpg',
+      badge: '/favicon-96x96.png',
+      image: payload.notification?.image || undefined,
+      vibrate: [200, 100, 200, 100, 200],
+      tag: orderNumber ? `order-${orderNumber}` : 'variety-momo-notification',
+      renotify: true,
+      data: {
+        click_action: clickAction,
+        order_number: orderNumber,
+        order_id: payload.data?.order_id
+      },
+      actions: [
+        {
+          action: 'open_order',
+          title: 'View Details'
+        }
+      ]
+    };
+
+    return self.registration.showNotification(title, notificationOptions);
+  });
+}
+
+// Notification Click Event Handling
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  const data = event.notification.data || {};
+  let targetUrl = data.click_action || '/';
+
+  // Ensure absolute URL
+  if (targetUrl.startsWith('/')) {
+    targetUrl = self.location.origin + targetUrl;
+  }
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // If a tab is already open on this origin, focus it and navigate
+      for (const client of windowClients) {
+        if (client.url.startsWith(self.location.origin) && 'focus' in client) {
+          client.focus();
+          if ('navigate' in client) {
+            return client.navigate(targetUrl);
+          }
+          return;
+        }
+      }
+      // If no tab is open, open a new window
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
+  );
+});
+
+// Service Worker Install & Precaching
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(PRECACHE_ASSETS).catch((err) => {
+        console.warn('[SW] Precache partial error:', err);
+      });
+    }).then(() => self.skipWaiting())
+  );
+});
+
+// Service Worker Activate & Cache Clean-Up
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames
+          .filter((name) => name !== CACHE_NAME)
+          .map((name) => caches.delete(name))
+      );
+    }).then(() => clients.claim())
+  );
+});
+
+// Fetch event handler with offline fallback
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+
+  // Skip non-GET and cross-origin API calls (Supabase, Firebase, Google APIs)
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin) {
+    return;
+  }
+
+  // HTML Navigation: Network-first, fallback to cache
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() => {
+        return caches.match('/index.html') || caches.match('/');
+      })
+    );
+    return;
+  }
+
+  // Static Assets: Cache-first, fallback to network
+  event.respondWith(
+    caches.match(event.request).then((cachedResponse) => {
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+      return fetch(event.request).then((networkResponse) => {
+        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
+          return networkResponse;
+        }
+        const responseToCache = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, responseToCache);
+        });
+        return networkResponse;
+      }).catch(() => {
+        // Fallback for missing images
+        if (event.request.destination === 'image') {
+          return caches.match('/variety-momo-logo.jpg');
+        }
+      });
+    })
+  );
+});
