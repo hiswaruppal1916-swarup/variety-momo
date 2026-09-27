@@ -765,50 +765,6 @@ export async function uploadStorageAsset(bucket, file, customPath = null) {
 }
 
 /**
- * Fetch Owner Notifications
- */
-export async function getOwnerNotifications() {
-  const { data, error } = await supabase
-    .from('notifications')
-    .select('*')
-    .eq('recipient_type', 'OWNER')
-    .order('created_at', { ascending: false })
-    .limit(50);
-
-  if (error) throw error;
-  return data || [];
-}
-
-/**
- * Mark a notification as read
- */
-export async function markNotificationAsRead(notificationId) {
-  const { data, error } = await supabase
-    .from('notifications')
-    .update({ is_read: true })
-    .eq('id', notificationId)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
-/**
- * Mark all owner notifications as read
- */
-export async function markAllNotificationsAsRead() {
-  const { data, error } = await supabase
-    .from('notifications')
-    .update({ is_read: true })
-    .eq('recipient_type', 'OWNER')
-    .eq('is_read', false);
-
-  if (error) throw error;
-  return data;
-}
-
-/**
  * Subscribe to Realtime events on orders, payments, and notifications for Owner Dashboard
  */
 export function subscribeToOwnerEvents({
@@ -1081,4 +1037,99 @@ export async function submitReview({ customer_name, rating, review_text }) {
 
   if (error) throw error;
   return data;
+}
+
+/**
+ * Fetch Owner Notifications
+ */
+export async function getOwnerNotifications() {
+  try {
+    const { data, error } = await supabase.rpc('get_owner_notifications');
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching owner notifications:', err);
+    return [];
+  }
+}
+
+/**
+ * Mark a single owner notification as read
+ */
+export async function markNotificationAsRead(notificationId) {
+  try {
+    const { data, error } = await supabase.rpc('mark_owner_notification_read', {
+      p_notification_id: notificationId
+    });
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.error('Error marking notification read:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Mark all owner notifications as read
+ */
+export async function markAllNotificationsAsRead() {
+  try {
+    const { data, error } = await supabase.rpc('mark_all_owner_notifications_read');
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.error('Error marking all notifications read:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Fetch Customer Notifications by their active tracking tokens
+ */
+export async function getCustomerNotifications(tokens = []) {
+  if (!tokens || tokens.length === 0) return [];
+  try {
+    const { data, error } = await supabase.rpc('get_customer_notifications', {
+      p_tokens: tokens
+    });
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching customer notifications:', err);
+    return [];
+  }
+}
+
+/**
+ * Mark a single customer notification as read
+ */
+export async function markCustomerNotificationRead(notificationId, trackingToken) {
+  try {
+    const { data, error } = await supabase.rpc('mark_customer_notification_read', {
+      p_notification_id: notificationId,
+      p_tracking_token: trackingToken
+    });
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.error('Error marking customer notification read:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Mark all customer notifications as read
+ */
+export async function markAllCustomerNotificationsRead(tokens = []) {
+  if (!tokens || tokens.length === 0) return { success: true };
+  try {
+    const { data, error } = await supabase.rpc('mark_all_customer_notifications_read', {
+      p_tokens: tokens
+    });
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.error('Error marking all customer notifications read:', err);
+    return { success: false, error: err.message };
+  }
 }

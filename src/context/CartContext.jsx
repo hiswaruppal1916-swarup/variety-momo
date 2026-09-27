@@ -3,8 +3,12 @@ import {
   getRestaurantSettings,
   getDeliveryZones,
   validateTableQR,
-  getTables
+  getTables,
+  getCustomerNotifications,
+  markCustomerNotificationRead,
+  markAllCustomerNotificationsRead
 } from '../services/restaurantService';
+import { supabase } from '../lib/supabase';
 
 const CartContext = createContext();
 
@@ -28,8 +32,28 @@ export function CartProvider({ children }) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isDineInModalOpen, setIsDineInModalOpen] = useState(false);
   const [isOrderTrackingOpen, setIsOrderTrackingOpen] = useState(false);
+  const [isCustomerNotifOpen, setIsCustomerNotifOpen] = useState(false);
 
-  // 4. Table Context for Dine-In (from QR code scan)
+  // 4. Customer Notifications & Tokens
+  const [customerNotifications, setCustomerNotifications] = useState([]);
+  const [customerTokens, setCustomerTokens] = useState(() => {
+    try {
+      const saved = localStorage.getItem('variety_momo_tokens');
+      const tokens = saved ? JSON.parse(saved) : [];
+      const active = localStorage.getItem('variety_momo_active_order');
+      if (active) {
+        const parsed = JSON.parse(active);
+        if (parsed.trackingToken && !tokens.includes(parsed.trackingToken)) {
+          tokens.push(parsed.trackingToken);
+        }
+      }
+      return tokens;
+    } catch {
+      return [];
+    }
+  });
+
+  // 5. Table Context for Dine-In (from QR code scan)
   const [tableContext, setTableContext] = useState(() => {
     try {
       const saved = sessionStorage.getItem('variety_momo_table');
@@ -41,10 +65,10 @@ export function CartProvider({ children }) {
   const [tableError, setTableError] = useState(null);
   const [tablesList, setTablesList] = useState([]);
 
-  // 5. Delivery Zones
+  // 6. Delivery Zones
   const [deliveryZones, setDeliveryZones] = useState([]);
 
-  // 6. Active Tracking Order
+  // 7. Active Tracking Order
   const [activeTracking, setActiveTracking] = useState(() => {
     try {
       const saved = localStorage.getItem('variety_momo_active_order');
@@ -54,7 +78,7 @@ export function CartProvider({ children }) {
     }
   });
 
-  // 7. Dynamic Restaurant Settings from Supabase
+  // 8. Dynamic Restaurant Settings from Supabase
   const [settings, setSettings] = useState({
     delivery_charge: 50,
     advance_payment_percentage: 30,
@@ -289,6 +313,63 @@ export function CartProvider({ children }) {
 
   const codAmount = grandTotal - advanceAmount;
 
+  // Fetch Customer Notifications
+  const fetchCustomerNotifs = useCallback(async () => {
+    if (!customerTokens || customerTokens.length === 0) return;
+    try {
+      const data = await getCustomerNotifications(customerTokens);
+      setCustomerNotifications(data || []);
+    } catch (err) {
+      console.error('Error loading customer notifications:', err);
+    }
+  }, [customerTokens]);
+
+  useEffect(() => {
+    fetchCustomerNotifs();
+  }, [fetchCustomerNotifs]);
+
+  // Realtime subscription for customer notifications
+  useEffect(() => {
+    if (!customerTokens || customerTokens.length === 0) return;
+
+    const channel = supabase
+      .channel('customer-notifications-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: 'recipient_type=eq.CUSTOMER'
+        },
+        () => {
+          fetchCustomerNotifs();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [customerTokens, fetchCustomerNotifs]);
+
+  const customerUnreadCount = customerNotifications.filter((n) => !n.is_read).length;
+
+  const openCustomerNotif = () => setIsCustomerNotifOpen(true);
+  const closeCustomerNotif = () => setIsCustomerNotifOpen(false);
+
+  const markCustomerNotifRead = async (id, token) => {
+    await markCustomerNotificationRead(id, token);
+    setCustomerNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
+    );
+  };
+
+  const markAllCustomerNotifsRead = async () => {
+    await markAllCustomerNotificationsRead(customerTokens);
+    setCustomerNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+  };
+
   // Track an active order
   const saveActiveOrder = (orderData) => {
     const trackingInfo = {
@@ -302,6 +383,12 @@ export function CartProvider({ children }) {
     setActiveTracking(trackingInfo);
     try {
       localStorage.setItem('variety_momo_active_order', JSON.stringify(trackingInfo));
+      const existingTokens = JSON.parse(localStorage.getItem('variety_momo_tokens') || '[]');
+      if (orderData.tracking_token && !existingTokens.includes(orderData.tracking_token)) {
+        existingTokens.push(orderData.tracking_token);
+        localStorage.setItem('variety_momo_tokens', JSON.stringify(existingTokens));
+        setCustomerTokens(existingTokens);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -309,7 +396,19 @@ export function CartProvider({ children }) {
 
   const openOrderTracking = (orderNumber = null, trackingToken = null) => {
     if (orderNumber && trackingToken) {
-      setActiveTracking({ orderNumber, trackingToken });
+      setActiveTracking((prev) => ({
+        ...prev,
+        orderNumber,
+        trackingToken
+      }));
+      try {
+        const existingTokens = JSON.parse(localStorage.getItem('variety_momo_tokens') || '[]');
+        if (!existingTokens.includes(trackingToken)) {
+          existingTokens.push(trackingToken);
+          localStorage.setItem('variety_momo_tokens', JSON.stringify(existingTokens));
+          setCustomerTokens(existingTokens);
+        }
+      } catch (e) {}
     }
     setIsOrderTrackingOpen(true);
   };
@@ -340,6 +439,13 @@ export function CartProvider({ children }) {
         isOrderTrackingOpen,
         openOrderTracking,
         closeOrderTracking,
+        isCustomerNotifOpen,
+        openCustomerNotif,
+        closeCustomerNotif,
+        customerNotifications,
+        customerUnreadCount,
+        markCustomerNotifRead,
+        markAllCustomerNotifsRead,
         addToCart,
         updateQuantity,
         removeFromCart,

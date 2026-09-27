@@ -13,30 +13,42 @@ import {
   XCircle,
   Eye,
   X,
-  ChevronRight,
-  ArrowRight,
   RotateCcw,
   IndianRupee,
   Calendar,
   AlertTriangle,
-  Loader2
+  Loader2,
+  Flame,
+  Check,
+  CreditCard,
+  RefreshCw,
+  ChefHat,
+  Bike
 } from 'lucide-react';
 import {
   getOwnerOrders,
   getOwnerOrderDetails,
   updateOrderStatus,
-  cancelOrder
+  cancelOrder,
+  getOwnerDashboardStats,
+  verifyOrderPayment,
+  rejectOrderPayment,
+  subscribeToOwnerEvents
 } from '../../services/restaurantService';
 
 export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
+  // Orders State
   const [orders, setOrders] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Dashboard Stats State (8 Key Cards)
+  const [stats, setStats] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+
   // Filters
-  const [statusFilter, setStatusFilter] = useState('ALL');
-  const [typeFilter, setTypeFilter] = useState('ALL');
+  const [activeFilter, setActiveFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(0);
   const pageSize = 20;
@@ -45,43 +57,99 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [orderDetails, setOrderDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState(null);
 
-  // Cancellation Modal
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [cancellationReason, setCancellationReason] = useState('');
+  // Rejection / Cancellation Modal
+  const [rejectingOrder, setRejectingOrder] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
 
-  // Load orders
+  // Payment Rejection Modal
+  const [rejectingPayment, setRejectingPayment] = useState(null);
+  const [paymentRejectReason, setPaymentRejectReason] = useState('');
+
+  // 1. Load Stats
+  const loadStats = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const data = await getOwnerDashboardStats();
+      if (data) setStats(data);
+    } catch (err) {
+      console.warn('Failed to load dashboard stats in OrdersTab:', err);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
+  // 2. Load Orders based on filters
   const loadOrders = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
+      let statusParam = 'ALL';
+      let typeParam = 'ALL';
+
+      if (activeFilter === 'HOME_DELIVERY') {
+        typeParam = 'HOME_DELIVERY';
+      } else if (activeFilter === 'DINE_IN') {
+        typeParam = 'DINE_IN';
+      } else if (activeFilter === 'PAYMENT_VERIFICATION') {
+        statusParam = 'PAYMENT_VERIFICATION';
+      } else if (activeFilter !== 'ALL') {
+        statusParam = activeFilter;
+      }
+
       const res = await getOwnerOrders({
-        status: statusFilter,
-        orderType: typeFilter,
+        status: statusParam,
+        orderType: typeParam,
         search: searchQuery,
         limit: pageSize,
         offset: page * pageSize
       });
-      setOrders(res.orders);
-      setTotalCount(res.totalCount);
+
+      setOrders(res.orders || []);
+      setTotalCount(res.totalCount || 0);
     } catch (err) {
       console.error('Failed to load orders:', err);
       setError(err.message || 'Failed to load orders.');
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, typeFilter, searchQuery, page]);
+  }, [activeFilter, searchQuery, page]);
 
+  // Initial load
   useEffect(() => {
+    loadStats();
     loadOrders();
-  }, [loadOrders]);
+  }, [loadStats, loadOrders]);
 
+  // Handle initialOrderId prop if passed (e.g. from notification click)
   useEffect(() => {
     if (initialOrderId) {
       handleOpenDetails(initialOrderId);
     }
   }, [initialOrderId]);
+
+  // 3. Supabase Realtime Subscription for instant live orders & stats
+  useEffect(() => {
+    const cleanup = subscribeToOwnerEvents({
+      onNewOrder: () => {
+        loadOrders();
+        loadStats();
+      },
+      onOrderUpdate: () => {
+        loadOrders();
+        loadStats();
+      },
+      onPaymentSubmitted: () => {
+        loadOrders();
+        loadStats();
+      }
+    });
+
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, [loadOrders, loadStats]);
 
   // Open Details Modal
   const handleOpenDetails = async (orderId) => {
@@ -98,50 +166,107 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
     }
   };
 
-  // Status transitions
-  const handleStatusTransition = async (newStatus, note = '') => {
-    if (!selectedOrderId) return;
-    setActionLoading(true);
+  // 4. One-Tap Order Status Transitions directly from cards
+  const handleDirectTransition = async (orderId, newStatus, note = '') => {
+    setActionLoadingId(orderId);
     try {
       await updateOrderStatus({
-        orderId: selectedOrderId,
+        orderId,
         newStatus,
         note
       });
-      // Refresh details and order list
-      const updated = await getOwnerOrderDetails(selectedOrderId);
-      setOrderDetails(updated);
-      loadOrders();
+      // Refresh list, stats, and modal if open
+      await Promise.all([loadOrders(), loadStats()]);
+      if (selectedOrderId === orderId) {
+        const updated = await getOwnerOrderDetails(orderId);
+        setOrderDetails(updated);
+      }
     } catch (err) {
-      console.error('Status transition error:', err);
+      console.error('Order status transition error:', err);
       alert(err.message || 'Failed to update order status.');
     } finally {
-      setActionLoading(false);
+      setActionLoadingId(null);
     }
   };
 
-  // Cancel order
-  const handleConfirmCancel = async () => {
-    if (!selectedOrderId) return;
-    setActionLoading(true);
+  // Handle Order Reject
+  const handleConfirmOrderReject = async () => {
+    if (!rejectingOrder) return;
+    setActionLoadingId(rejectingOrder.id);
     try {
       await cancelOrder({
-        orderId: selectedOrderId,
-        reason: cancellationReason || 'Cancelled by restaurant owner'
+        orderId: rejectingOrder.id,
+        reason: rejectReason.trim() || 'Rejected by restaurant kitchen'
       });
-      setShowCancelModal(false);
-      setCancellationReason('');
-      const updated = await getOwnerOrderDetails(selectedOrderId);
-      setOrderDetails(updated);
-      loadOrders();
+      setRejectingOrder(null);
+      setRejectReason('');
+      await Promise.all([loadOrders(), loadStats()]);
+      if (selectedOrderId === rejectingOrder.id) {
+        setSelectedOrderId(null);
+      }
     } catch (err) {
-      console.error('Cancel order error:', err);
-      alert(err.message || 'Failed to cancel order.');
+      console.error('Reject order error:', err);
+      alert(err.message || 'Failed to reject order.');
     } finally {
-      setActionLoading(false);
+      setActionLoadingId(null);
     }
   };
 
+  // 5. Payment Verification Direct Actions
+  const handleDirectVerifyPayment = async (order) => {
+    const payment = order.payments?.[0];
+    if (!payment) {
+      alert('No payment record found for this order.');
+      return;
+    }
+    setActionLoadingId(order.id);
+    try {
+      await verifyOrderPayment({
+        paymentId: payment.id,
+        orderId: order.id,
+        note: `Advance payment verified for order #${order.order_number}`
+      });
+      await Promise.all([loadOrders(), loadStats()]);
+      if (selectedOrderId === order.id) {
+        const updated = await getOwnerOrderDetails(order.id);
+        setOrderDetails(updated);
+      }
+    } catch (err) {
+      console.error('Payment verification error:', err);
+      alert(err.message || 'Failed to verify payment.');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleConfirmRejectPayment = async () => {
+    if (!rejectingPayment) return;
+    const payment = rejectingPayment.payments?.[0];
+    if (!payment) return;
+
+    setActionLoadingId(rejectingPayment.id);
+    try {
+      await rejectOrderPayment({
+        paymentId: payment.id,
+        orderId: rejectingPayment.id,
+        reason: paymentRejectReason.trim() || 'UTR / Transaction reference invalid'
+      });
+      setRejectingPayment(null);
+      setPaymentRejectReason('');
+      await Promise.all([loadOrders(), loadStats()]);
+      if (selectedOrderId === rejectingPayment.id) {
+        const updated = await getOwnerOrderDetails(rejectingPayment.id);
+        setOrderDetails(updated);
+      }
+    } catch (err) {
+      console.error('Reject payment error:', err);
+      alert(err.message || 'Failed to reject payment.');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  // Helper status badge
   const getStatusBadge = (status) => {
     switch (status) {
       case 'PENDING':
@@ -170,18 +295,243 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
     }
   };
 
+  // Helper format time
+  const formatOrderTime = (timestamp) => {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  };
+
   return (
-    <div className="space-y-5">
-      {/* Header and Filter Controls */}
-      <div className="bg-stone-900/70 p-4 rounded-2xl border border-stone-800 space-y-4">
+    <div className="space-y-6">
+      {/* ========================================================
+          1. TOP SUMMARY METRIC CARDS (Requirement 20)
+          TODAY'S ORDERS, HOME DELIVERY, DINE-IN, PENDING,
+          PREPARING, READY, COMPLETED, PAYMENT VERIFICATION
+         ======================================================== */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-stone-400">
+            Order Performance Overview
+          </h2>
+          <button
+            onClick={() => {
+              loadStats();
+              loadOrders();
+            }}
+            disabled={statsLoading}
+            className="inline-flex items-center gap-1.5 text-xs text-brand-400 hover:text-brand-300 font-medium"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${statsLoading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
+          {/* 1. Today's Orders */}
+          <button
+            onClick={() => {
+              setActiveFilter('ALL');
+              setPage(0);
+            }}
+            className={`p-3 rounded-2xl border text-left transition-all relative overflow-hidden ${
+              activeFilter === 'ALL'
+                ? 'bg-brand-500/15 border-brand-500/40 ring-1 ring-brand-500/30'
+                : 'bg-stone-900/80 border-stone-800 hover:border-stone-700'
+            }`}
+          >
+            <div className="flex items-center justify-between text-stone-400 mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider">Today</span>
+              <ShoppingBag className="w-3.5 h-3.5 text-brand-400" />
+            </div>
+            <div className="text-xl font-outfit font-black text-white">
+              {stats?.today_orders ?? 0}
+            </div>
+            <div className="text-[10px] text-stone-400 truncate mt-0.5">Total Orders</div>
+          </button>
+
+          {/* 2. Home Delivery */}
+          <button
+            onClick={() => {
+              setActiveFilter('HOME_DELIVERY');
+              setPage(0);
+            }}
+            className={`p-3 rounded-2xl border text-left transition-all ${
+              activeFilter === 'HOME_DELIVERY'
+                ? 'bg-emerald-500/15 border-emerald-500/40 ring-1 ring-emerald-500/30'
+                : 'bg-stone-900/80 border-stone-800 hover:border-stone-700'
+            }`}
+          >
+            <div className="flex items-center justify-between text-stone-400 mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider">Delivery</span>
+              <Truck className="w-3.5 h-3.5 text-emerald-400" />
+            </div>
+            <div className="text-xl font-outfit font-black text-white">
+              {stats?.home_delivery_orders ?? 0}
+            </div>
+            <div className="text-[10px] text-stone-400 truncate mt-0.5">Home Delivery</div>
+          </button>
+
+          {/* 3. Dine-In */}
+          <button
+            onClick={() => {
+              setActiveFilter('DINE_IN');
+              setPage(0);
+            }}
+            className={`p-3 rounded-2xl border text-left transition-all ${
+              activeFilter === 'DINE_IN'
+                ? 'bg-blue-500/15 border-blue-500/40 ring-1 ring-blue-500/30'
+                : 'bg-stone-900/80 border-stone-800 hover:border-stone-700'
+            }`}
+          >
+            <div className="flex items-center justify-between text-stone-400 mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider">Dine-In</span>
+              <UtensilsCrossed className="w-3.5 h-3.5 text-blue-400" />
+            </div>
+            <div className="text-xl font-outfit font-black text-white">
+              {stats?.dine_in_orders ?? 0}
+            </div>
+            <div className="text-[10px] text-stone-400 truncate mt-0.5">Dine-In Tables</div>
+          </button>
+
+          {/* 4. Pending */}
+          <button
+            onClick={() => {
+              setActiveFilter('PENDING');
+              setPage(0);
+            }}
+            className={`p-3 rounded-2xl border text-left transition-all ${
+              activeFilter === 'PENDING'
+                ? 'bg-amber-500/20 border-amber-500/50 ring-1 ring-amber-500/40'
+                : 'bg-stone-900/80 border-stone-800 hover:border-stone-700'
+            }`}
+          >
+            <div className="flex items-center justify-between text-stone-400 mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider">Pending</span>
+              <Clock className="w-3.5 h-3.5 text-amber-400" />
+            </div>
+            <div className="text-xl font-outfit font-black text-amber-300">
+              {stats?.pending_orders ?? 0}
+            </div>
+            <div className="text-[10px] text-stone-400 truncate mt-0.5">Needs Action</div>
+          </button>
+
+          {/* 5. Preparing */}
+          <button
+            onClick={() => {
+              setActiveFilter('PREPARING');
+              setPage(0);
+            }}
+            className={`p-3 rounded-2xl border text-left transition-all ${
+              activeFilter === 'PREPARING'
+                ? 'bg-purple-500/15 border-purple-500/40 ring-1 ring-purple-500/30'
+                : 'bg-stone-900/80 border-stone-800 hover:border-stone-700'
+            }`}
+          >
+            <div className="flex items-center justify-between text-stone-400 mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider">Kitchen</span>
+              <Flame className="w-3.5 h-3.5 text-purple-400" />
+            </div>
+            <div className="text-xl font-outfit font-black text-purple-300">
+              {stats?.preparing ?? 0}
+            </div>
+            <div className="text-[10px] text-stone-400 truncate mt-0.5">Preparing</div>
+          </button>
+
+          {/* 6. Ready */}
+          <button
+            onClick={() => {
+              setActiveFilter('READY');
+              setPage(0);
+            }}
+            className={`p-3 rounded-2xl border text-left transition-all ${
+              activeFilter === 'READY'
+                ? 'bg-cyan-500/15 border-cyan-500/40 ring-1 ring-cyan-500/30'
+                : 'bg-stone-900/80 border-stone-800 hover:border-stone-700'
+            }`}
+          >
+            <div className="flex items-center justify-between text-stone-400 mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider">Ready</span>
+              <Check className="w-3.5 h-3.5 text-cyan-400" />
+            </div>
+            <div className="text-xl font-outfit font-black text-cyan-300">
+              {stats?.ready ?? 0}
+            </div>
+            <div className="text-[10px] text-stone-400 truncate mt-0.5">Serve / Dispatch</div>
+          </button>
+
+          {/* 7. Completed */}
+          <button
+            onClick={() => {
+              setActiveFilter('COMPLETED');
+              setPage(0);
+            }}
+            className={`p-3 rounded-2xl border text-left transition-all ${
+              activeFilter === 'COMPLETED'
+                ? 'bg-emerald-500/15 border-emerald-500/40 ring-1 ring-emerald-500/30'
+                : 'bg-stone-900/80 border-stone-800 hover:border-stone-700'
+            }`}
+          >
+            <div className="flex items-center justify-between text-stone-400 mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider">Done</span>
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            </div>
+            <div className="text-xl font-outfit font-black text-emerald-400">
+              {stats?.completed ?? 0}
+            </div>
+            <div className="text-[10px] text-stone-400 truncate mt-0.5">Completed</div>
+          </button>
+
+          {/* 8. Payment Verification */}
+          <button
+            onClick={() => {
+              setActiveFilter('PAYMENT_VERIFICATION');
+              setPage(0);
+            }}
+            className={`p-3 rounded-2xl border text-left transition-all relative ${
+              activeFilter === 'PAYMENT_VERIFICATION'
+                ? 'bg-rose-500/20 border-rose-500/50 ring-1 ring-rose-500/40'
+                : (stats?.payment_verification ?? 0) > 0
+                ? 'bg-rose-950/40 border-rose-800/80 hover:border-rose-700 animate-pulse'
+                : 'bg-stone-900/80 border-stone-800 hover:border-stone-700'
+            }`}
+          >
+            <div className="flex items-center justify-between text-stone-400 mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-rose-400">Verify</span>
+              <CreditCard className="w-3.5 h-3.5 text-rose-400" />
+            </div>
+            <div className="text-xl font-outfit font-black text-rose-400">
+              {stats?.payment_verification ?? 0}
+            </div>
+            <div className="text-[10px] text-stone-400 truncate mt-0.5">Payments</div>
+          </button>
+        </div>
+      </div>
+
+      {/* ========================================================
+          2. FILTER BAR & SEARCH (Requirement 26)
+          ALL, HOME DELIVERY, DINE-IN, PENDING, PREPARING,
+          READY, COMPLETED, PAYMENT VERIFICATION
+         ======================================================== */}
+      <div className="bg-stone-900/80 p-4 rounded-2xl border border-stone-800 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h1 className="font-outfit font-extrabold text-white text-xl sm:text-2xl tracking-tight">
-              Order Management
-            </h1>
-            <p className="text-xs text-stone-400 mt-0.5">
-              Showing {orders.length} of {totalCount} total orders in database.
-            </p>
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+            <h2 className="font-outfit font-black text-white text-lg tracking-tight">
+              LIVE ORDERS
+            </h2>
+            <span className="text-xs text-stone-400 bg-stone-800/80 px-2 py-0.5 rounded-lg border border-stone-700">
+              {totalCount} orders
+            </span>
           </div>
 
           {/* Search box */}
@@ -200,161 +550,356 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
           </div>
         </div>
 
-        {/* Order Type Toggle Pills */}
-        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-stone-800/80">
-          <span className="text-[11px] font-semibold text-stone-400 mr-1">Type:</span>
-          {['ALL', 'DINE_IN', 'HOME_DELIVERY'].map((t) => (
-            <button
-              key={t}
-              onClick={() => {
-                setTypeFilter(t);
-                setPage(0);
-              }}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                typeFilter === t
-                  ? 'bg-brand-600 text-white shadow-xs'
-                  : 'bg-stone-800/80 text-stone-300 hover:bg-stone-800'
-              }`}
-            >
-              {t === 'ALL' ? 'All Types' : t === 'DINE_IN' ? 'Dine-In' : 'Home Delivery'}
-            </button>
-          ))}
-        </div>
-
-        {/* Status Filter Horizontal Scrolling Bar */}
+        {/* Filter Pills */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
-          <span className="text-[11px] font-semibold text-stone-400 mr-1 shrink-0">Status:</span>
           {[
-            'ALL',
-            'PENDING',
-            'PAYMENT_VERIFICATION',
-            'PAYMENT_VERIFIED',
-            'ACCEPTED',
-            'PREPARING',
-            'READY',
-            'OUT_FOR_DELIVERY',
-            'SERVED',
-            'COMPLETED',
-            'CANCELLED'
-          ].map((s) => (
+            { id: 'ALL', label: 'All Orders' },
+            { id: 'HOME_DELIVERY', label: '🛵 Home Delivery' },
+            { id: 'DINE_IN', label: '🍽️ Dine-In' },
+            { id: 'PENDING', label: '⏳ Pending' },
+            { id: 'PREPARING', label: '🔥 Preparing' },
+            { id: 'READY', label: '🥟 Ready' },
+            { id: 'COMPLETED', label: '✅ Completed' },
+            { id: 'PAYMENT_VERIFICATION', label: '💳 Payment Verification' }
+          ].map((tab) => (
             <button
-              key={s}
+              key={tab.id}
               onClick={() => {
-                setStatusFilter(s);
+                setActiveFilter(tab.id);
                 setPage(0);
               }}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                statusFilter === s
-                  ? 'bg-amber-500 text-stone-950 font-bold'
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                activeFilter === tab.id
+                  ? 'bg-brand-500 text-white shadow-md shadow-brand-900/30'
                   : 'bg-stone-800/80 text-stone-300 hover:bg-stone-800'
               }`}
             >
-              {s.replace(/_/g, ' ')}
+              {tab.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Orders Grid / List */}
+      {/* ========================================================
+          3. LIVE ORDER QUEUE (Requirements 21, 22, 23, 24, 25)
+         ======================================================== */}
       {loading ? (
         <div className="py-20 text-center flex flex-col items-center justify-center gap-2">
-          <Loader2 className="w-7 h-7 text-brand-500 animate-spin" />
-          <span className="text-xs text-stone-400">Loading order records...</span>
+          <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
+          <span className="text-xs text-stone-400">Loading live orders...</span>
         </div>
       ) : orders.length === 0 ? (
-        <div className="p-12 text-center bg-stone-900/40 rounded-2xl border border-stone-800">
-          <ShoppingBag className="w-10 h-10 text-stone-600 mx-auto mb-2" />
-          <p className="text-sm font-semibold text-stone-300">No orders found.</p>
-          <p className="text-xs text-stone-500 mt-1">Try changing your search terms or status filters.</p>
+        <div className="p-12 text-center bg-stone-900/40 rounded-3xl border border-stone-800">
+          <ShoppingBag className="w-12 h-12 text-stone-600 mx-auto mb-3" />
+          <p className="text-base font-bold text-stone-200">No matching orders found</p>
+          <p className="text-xs text-stone-400 mt-1 max-w-sm mx-auto">
+            {activeFilter !== 'ALL'
+              ? `There are currently no orders in "${activeFilter.replace(/_/g, ' ')}" status.`
+              : 'New orders placed by customers will appear here instantly in realtime.'}
+          </p>
+          {activeFilter !== 'ALL' && (
+            <button
+              onClick={() => setActiveFilter('ALL')}
+              className="mt-4 px-4 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-white text-xs font-semibold"
+            >
+              Show All Orders
+            </button>
+          )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {orders.map((order) => {
             const isDineIn = order.order_type === 'DINE_IN';
+            const isProcessingThis = actionLoadingId === order.id;
+            const needsPaymentVerification = order.payment_status === 'SUBMITTED';
+
             return (
               <div
                 key={order.id}
-                className="bg-stone-900/90 rounded-2xl border border-stone-800 p-4 hover:border-stone-700 transition-all flex flex-col justify-between"
+                className={`bg-stone-900/95 rounded-3xl border p-4 sm:p-5 flex flex-col justify-between transition-all shadow-lg ${
+                  needsPaymentVerification
+                    ? 'border-rose-500/50 ring-1 ring-rose-500/30'
+                    : order.order_status === 'PENDING'
+                    ? 'border-amber-500/40 ring-1 ring-amber-500/20'
+                    : 'border-stone-800 hover:border-stone-700'
+                }`}
               >
-                {/* Order Top Bar */}
-                <div className="flex items-start justify-between gap-2 border-b border-stone-800/80 pb-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-outfit font-black text-white text-base tracking-tight">
-                        {order.order_number}
-                      </span>
-                      {isDineIn ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 text-[11px] font-bold border border-amber-500/20">
-                          <UtensilsCrossed className="w-3 h-3" />
-                          <span>Table {order.tables?.table_number || 'N/A'}</span>
+                {/* Header: Order Number, Type, Time & Status */}
+                <div>
+                  <div className="flex items-start justify-between gap-2 pb-3 border-b border-stone-800/80">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-outfit font-black text-white text-lg tracking-tight">
+                          {order.order_number}
                         </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 text-[11px] font-bold border border-emerald-500/20">
-                          <Truck className="w-3 h-3" />
-                          <span>Delivery</span>
-                        </span>
-                      )}
+                        {isDineIn ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-blue-500/15 text-blue-400 text-xs font-bold border border-blue-500/25">
+                            <UtensilsCrossed className="w-3.5 h-3.5" />
+                            <span>Table {order.tables?.table_number || 'N/A'}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-400 text-xs font-bold border border-emerald-500/25">
+                            <Truck className="w-3.5 h-3.5" />
+                            <span>Home Delivery</span>
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-stone-400 mt-1 flex items-center gap-1.5">
+                        <Clock className="w-3 h-3 text-stone-500" />
+                        <span>{formatOrderTime(order.created_at)}</span>
+                        <span>•</span>
+                        <span>{new Date(order.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
                     </div>
-                    <div className="text-[11px] text-stone-400 mt-0.5 flex items-center gap-2">
-                      <Calendar className="w-3 h-3 text-stone-500" />
-                      <span>{new Date(order.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+
+                    <div className="flex flex-col items-end gap-1">
+                      {getStatusBadge(order.order_status)}
                     </div>
                   </div>
 
-                  <div className="flex flex-col items-end gap-1">
-                    {getStatusBadge(order.order_status)}
-                    <span className="text-[10px] text-stone-400">
-                      Payment: <strong className="text-white">{order.payment_status}</strong>
-                    </span>
+                  {/* Customer Information & Address */}
+                  <div className="py-3 border-b border-stone-800/60 space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-white text-sm">{order.customer_name}</span>
+                      <a
+                        href={`tel:${order.customer_phone}`}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-stone-800 text-emerald-400 hover:text-emerald-300 font-bold text-xs"
+                      >
+                        <Phone className="w-3 h-3" />
+                        <span>{order.customer_phone}</span>
+                      </a>
+                    </div>
+
+                    {!isDineIn && order.customer_addresses && (
+                      <div className="flex items-start gap-1.5 text-stone-400 text-[11px] bg-stone-950/60 p-2 rounded-xl border border-stone-800/80">
+                        <MapPin className="w-3.5 h-3.5 text-brand-400 shrink-0 mt-0.5" />
+                        <span className="line-clamp-2">
+                          {order.customer_addresses.address_line}, {order.customer_addresses.area}
+                          {order.customer_addresses.delivery_zones?.name ? ` (${order.customer_addresses.delivery_zones.name})` : ''}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Order Food Items Summary */}
+                    <div className="pt-2 text-stone-300 text-xs">
+                      <div className="font-semibold text-[11px] text-stone-400 uppercase tracking-wider mb-1">
+                        Items ({order.order_items?.length || 0})
+                      </div>
+                      <div className="space-y-0.5">
+                        {order.order_items?.map((it, idx) => (
+                          <div key={idx} className="flex justify-between text-stone-200">
+                            <span>
+                              <strong className="text-brand-400">{it.quantity}x</strong> {it.item_name_snapshot}
+                            </span>
+                            <span className="text-stone-400">₹{it.line_total}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Pricing Breakdown & Payment Details */}
+                  <div className="py-2.5 space-y-1 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-stone-400 text-[11px]">Grand Total</span>
+                      <span className="text-base font-outfit font-black text-brand-400">
+                        ₹{order.grand_total}
+                      </span>
+                    </div>
+
+                    {!isDineIn && (
+                      <div className="flex items-center justify-between text-[11px] text-stone-400">
+                        <span>Advance: ₹{order.advance_amount}</span>
+                        <span>Remaining COD: ₹{order.cod_amount}</span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between text-[11px] pt-1">
+                      <span className="text-stone-400">Payment Status</span>
+                      <span className={`font-bold ${
+                        order.payment_status === 'VERIFIED'
+                          ? 'text-emerald-400'
+                          : order.payment_status === 'SUBMITTED'
+                          ? 'text-rose-400'
+                          : 'text-amber-400'
+                      }`}>
+                        {order.payment_status}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* ========================================================
+                      PAYMENT VERIFICATION CALLOUT (Requirement 25)
+                     ======================================================== */}
+                  {needsPaymentVerification && (
+                    <div className="my-2.5 p-3 rounded-2xl bg-rose-950/40 border border-rose-500/40 space-y-2">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-rose-300">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span>Advance Payment Verification Required</span>
+                      </div>
+                      <div className="text-[11px] text-stone-300">
+                        Ref / UTR: <strong className="text-white font-mono">{order.payment_reference || order.payments?.[0]?.customer_reference || 'N/A'}</strong>
+                        <div className="text-rose-300 font-semibold mt-0.5">Amount: ₹{order.advance_amount}</div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button
+                          disabled={isProcessingThis}
+                          onClick={() => handleDirectVerifyPayment(order)}
+                          className="py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center justify-center gap-1"
+                        >
+                          {isProcessingThis ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Verify</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          disabled={isProcessingThis}
+                          onClick={() => setRejectingPayment(order)}
+                          className="py-2 px-3 rounded-xl bg-stone-800 hover:bg-rose-900/60 text-rose-300 hover:text-white border border-rose-800/60 text-xs font-bold transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-1"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>Reject</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                {/* Customer & Location */}
-                <div className="py-2.5 space-y-1 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-white">{order.customer_name}</span>
-                    <a
-                      href={`tel:${order.customer_phone}`}
-                      className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 hover:text-emerald-300"
-                    >
-                      <Phone className="w-3 h-3" />
-                      <span>{order.customer_phone}</span>
-                    </a>
-                  </div>
-
-                  {!isDineIn && order.customer_addresses && (
-                    <div className="flex items-start gap-1.5 text-[11px] text-stone-400">
-                      <MapPin className="w-3.5 h-3.5 text-stone-500 shrink-0 mt-0.5" />
-                      <span className="line-clamp-1">
-                        {order.customer_addresses.address_line}, {order.customer_addresses.area} ({order.customer_addresses.pincode})
-                      </span>
+                {/* ========================================================
+                    ONE-TAP STATUS CONTROLS (Requirements 22, 23, 24)
+                   ======================================================== */}
+                <div className="pt-3 border-t border-stone-800/80 space-y-2">
+                  {/* Status Action Buttons */}
+                  {order.order_status === 'PENDING' && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        disabled={isProcessingThis}
+                        onClick={() => handleDirectTransition(order.id, 'ACCEPTED', 'Order accepted by kitchen')}
+                        className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center justify-center gap-1.5"
+                      >
+                        {isProcessingThis ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <>
+                            <Check className="w-4 h-4" />
+                            <span>ACCEPT</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        disabled={isProcessingThis}
+                        onClick={() => setRejectingOrder(order)}
+                        className="py-2.5 px-3 rounded-xl bg-stone-800 hover:bg-red-900/50 text-red-400 hover:text-white border border-red-800/60 text-xs font-extrabold transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-1.5"
+                      >
+                        <X className="w-4 h-4" />
+                        <span>REJECT</span>
+                      </button>
                     </div>
                   )}
 
-                  {/* Items summary */}
-                  <div className="pt-2 text-[11px] text-stone-300 border-t border-stone-800/40">
-                    <div className="line-clamp-2">
-                      {order.order_items?.map((it) => `${it.quantity}x ${it.item_name_snapshot}`).join(', ') || 'No item details'}
-                    </div>
-                  </div>
-                </div>
+                  {order.order_status === 'ACCEPTED' && (
+                    <button
+                      disabled={isProcessingThis}
+                      onClick={() => handleDirectTransition(order.id, 'PREPARING', 'Momos are steaming in the kitchen')}
+                      className="w-full py-2.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-extrabold transition-all shadow-md shadow-purple-950/40 active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {isProcessingThis ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          <ChefHat className="w-4 h-4" />
+                          <span>START PREPARING</span>
+                        </>
+                      )}
+                    </button>
+                  )}
 
-                {/* Order Footer & Price */}
-                <div className="pt-3 border-t border-stone-800/80 flex items-center justify-between gap-2">
-                  <div>
-                    <div className="text-[10px] text-stone-400">Grand Total</div>
-                    <div className="text-base font-outfit font-black text-brand-400">
-                      ₹{order.grand_total}
-                    </div>
-                  </div>
+                  {order.order_status === 'PREPARING' && (
+                    <button
+                      disabled={isProcessingThis}
+                      onClick={() => handleDirectTransition(order.id, 'READY', 'Order is freshly prepared and ready')}
+                      className="w-full py-2.5 px-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-extrabold transition-all shadow-md shadow-cyan-950/40 active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {isProcessingThis ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          <Check className="w-4 h-4" />
+                          <span>MARK READY</span>
+                        </>
+                      )}
+                    </button>
+                  )}
 
-                  <div className="flex items-center gap-2">
+                  {order.order_status === 'READY' && (
+                    <div>
+                      {isDineIn ? (
+                        <button
+                          disabled={isProcessingThis}
+                          onClick={() => handleDirectTransition(order.id, 'SERVED', 'Order served hot at table')}
+                          className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold transition-all shadow-md shadow-emerald-950/40 active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          {isProcessingThis ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <UtensilsCrossed className="w-4 h-4" />
+                              <span>MARK SERVED</span>
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <button
+                          disabled={isProcessingThis}
+                          onClick={() => handleDirectTransition(order.id, 'OUT_FOR_DELIVERY', 'Rider is out for delivery')}
+                          className="w-full py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold transition-all shadow-md shadow-indigo-950/40 active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          {isProcessingThis ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Bike className="w-4 h-4" />
+                              <span>OUT FOR DELIVERY</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {(order.order_status === 'SERVED' || order.order_status === 'OUT_FOR_DELIVERY') && (
+                    <button
+                      disabled={isProcessingThis}
+                      onClick={() => handleDirectTransition(order.id, 'COMPLETED', 'Order completed and settled')}
+                      className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {isProcessingThis ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>COMPLETE ORDER</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  {/* Secondary Details Trigger */}
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[10px] text-stone-500">
+                      ID: {order.id.slice(0, 8)}...
+                    </span>
                     <button
                       onClick={() => handleOpenDetails(order.id)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold border border-stone-700 transition-all active:scale-95"
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-400 hover:text-white transition-colors"
                     >
                       <Eye className="w-3.5 h-3.5" />
-                      <span>Details</span>
+                      <span>Full Details & Receipt</span>
                     </button>
                   </div>
                 </div>
@@ -366,7 +911,7 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
 
       {/* Pagination Controls */}
       {totalCount > pageSize && (
-        <div className="flex items-center justify-between pt-3 text-xs text-stone-400">
+        <div className="flex items-center justify-between pt-4 text-xs text-stone-400">
           <span>
             Page {page + 1} of {Math.ceil(totalCount / pageSize)}
           </span>
@@ -374,14 +919,14 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
             <button
               disabled={page === 0}
               onClick={() => setPage((p) => Math.max(0, p - 1))}
-              className="px-3 py-1.5 rounded-xl bg-stone-800 text-stone-300 disabled:opacity-40"
+              className="px-3.5 py-1.5 rounded-xl bg-stone-900 border border-stone-800 text-stone-300 disabled:opacity-40"
             >
               Previous
             </button>
             <button
               disabled={(page + 1) * pageSize >= totalCount}
               onClick={() => setPage((p) => p + 1)}
-              className="px-3 py-1.5 rounded-xl bg-stone-800 text-stone-300 disabled:opacity-40"
+              className="px-3.5 py-1.5 rounded-xl bg-stone-900 border border-stone-800 text-stone-300 disabled:opacity-40"
             >
               Next
             </button>
@@ -389,7 +934,156 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
         </div>
       )}
 
-      {/* FULL ORDER DETAILS MODAL */}
+      {/* ========================================================
+          4. REJECT ORDER MODAL (Requirement 24)
+         ======================================================== */}
+      {rejectingOrder && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 max-w-md w-full text-white space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-red-400" />
+                <h3 className="font-outfit font-black text-lg">Reject Order #{rejectingOrder.order_number}</h3>
+              </div>
+              <button
+                onClick={() => setRejectingOrder(null)}
+                className="text-stone-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-stone-300">
+              Are you sure you want to reject this order? The customer will receive an alert notification.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-stone-400 uppercase tracking-wider">
+                Reason for Rejection (Optional)
+              </label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {['Item Out of Stock', 'Kitchen Too Busy', 'Address Outside Delivery Range'].map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setRejectReason(r)}
+                    className="text-[10px] px-2 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300"
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Enter rejection reason for customer..."
+                className="w-full bg-stone-950 border border-stone-700 rounded-xl p-3 text-xs text-white placeholder-stone-500 focus:outline-hidden focus:border-red-500 h-20"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setRejectingOrder(null)}
+                className="flex-1 py-2.5 rounded-xl bg-stone-800 text-stone-300 text-xs font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={actionLoadingId === rejectingOrder.id}
+                onClick={handleConfirmOrderReject}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center justify-center gap-1.5"
+              >
+                {actionLoadingId === rejectingOrder.id ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <XCircle className="w-4 h-4" />
+                    <span>Confirm Rejection</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          5. REJECT PAYMENT MODAL (Requirement 25)
+         ======================================================== */}
+      {rejectingPayment && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 max-w-md w-full text-white space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-rose-400" />
+                <h3 className="font-outfit font-black text-lg">Reject Payment</h3>
+              </div>
+              <button
+                onClick={() => setRejectingPayment(null)}
+                className="text-stone-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-stone-300">
+              The customer will be notified that their payment reference could not be verified and asked to resubmit.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-stone-400 uppercase tracking-wider">
+                Rejection Reason
+              </label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {['UTR not found in merchant bank', 'Incorrect amount received', 'Duplicate UTR reference'].map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setPaymentRejectReason(r)}
+                    className="text-[10px] px-2 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300"
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="text"
+                value={paymentRejectReason}
+                onChange={(e) => setPaymentRejectReason(e.target.value)}
+                placeholder="Reason (e.g. UTR not matching statement)"
+                className="w-full bg-stone-950 border border-stone-700 rounded-xl p-3 text-xs text-white placeholder-stone-500 focus:outline-hidden focus:border-rose-500"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setRejectingPayment(null)}
+                className="flex-1 py-2.5 rounded-xl bg-stone-800 text-stone-300 text-xs font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={actionLoadingId === rejectingPayment.id}
+                onClick={handleConfirmRejectPayment}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center justify-center gap-1.5"
+              >
+                {actionLoadingId === rejectingPayment.id ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <XCircle className="w-4 h-4" />
+                    <span>Reject Payment</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          6. FULL ORDER DETAILS MODAL
+         ======================================================== */}
       {selectedOrderId && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3 sm:p-4 backdrop-blur-xs overflow-y-auto">
           <div className="bg-stone-900 border border-stone-800 w-full max-w-2xl rounded-3xl p-5 sm:p-6 text-white max-h-[90vh] overflow-y-auto custom-scrollbar my-auto">
@@ -400,376 +1094,134 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
               </div>
             ) : (
               <div className="space-y-5">
-                {/* Modal Header */}
-                <div className="flex items-start justify-between pb-4 border-b border-stone-800">
+                {/* Header */}
+                <div className="flex items-start justify-between border-b border-stone-800 pb-4">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h2 className="font-outfit font-black text-xl sm:text-2xl text-white">
-                        Order #{orderDetails.order_number}
+                      <h2 className="font-outfit font-black text-xl text-white">
+                        {orderDetails.order_number}
                       </h2>
-                      {getStatusBadge(orderDetails.order_status)}
+                      {orderDetails.order_type === 'DINE_IN' ? (
+                        <span className="px-2.5 py-0.5 rounded-lg bg-blue-500/15 text-blue-400 text-xs font-bold border border-blue-500/25">
+                          Dine-In • Table {orderDetails.tables?.table_number || 'N/A'}
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-400 text-xs font-bold border border-emerald-500/25">
+                          Home Delivery
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-stone-400 mt-1">
-                      Placed on {new Date(orderDetails.created_at).toLocaleString('en-IN', { dateStyle: 'full', timeStyle: 'short' })}
+                      Placed on {new Date(orderDetails.created_at).toLocaleString('en-IN', { dateStyle: 'long', timeStyle: 'short' })}
                     </p>
                   </div>
-
                   <button
-                    onClick={() => setSelectedOrderId(null)}
-                    className="p-1.5 rounded-xl bg-stone-800 text-stone-400 hover:text-white transition-colors"
+                    onClick={() => {
+                      setSelectedOrderId(null);
+                      setOrderDetails(null);
+                    }}
+                    className="p-1.5 rounded-xl bg-stone-800 text-stone-400 hover:text-white"
                   >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
 
-                {/* Customer Section */}
+                {/* Customer Details */}
                 <div className="bg-stone-950/60 p-4 rounded-2xl border border-stone-800 space-y-2">
-                  <div className="text-xs font-bold text-stone-400 uppercase tracking-wider">
-                    Customer Information
-                  </div>
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <div className="text-sm font-bold text-white">{orderDetails.customer_name}</div>
-                      <div className="text-xs text-stone-400">Customer</div>
-                    </div>
+                  <div className="text-xs font-bold uppercase tracking-wider text-stone-400">Customer</div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="font-bold text-white">{orderDetails.customer_name}</span>
                     <a
                       href={`tel:${orderDetails.customer_phone}`}
-                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-600/20 text-emerald-300 text-xs font-bold border border-emerald-500/30 self-start sm:self-auto"
+                      className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-bold"
                     >
-                      <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                      <Phone className="w-3.5 h-3.5" />
                       <span>{orderDetails.customer_phone}</span>
                     </a>
                   </div>
-                </div>
 
-                {/* Service Type Section */}
-                <div className="bg-stone-950/60 p-4 rounded-2xl border border-stone-800 space-y-2">
-                  <div className="text-xs font-bold text-stone-400 uppercase tracking-wider">
-                    Service Specifics
-                  </div>
-                  {orderDetails.order_type === 'DINE_IN' ? (
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                        <UtensilsCrossed className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div className="text-sm font-bold text-white">
-                          Table Number: {orderDetails.tables?.table_number || 'N/A'}
-                        </div>
-                        <p className="text-xs text-stone-400">
-                          Dine-in service. Billing settlement is completed at counter.
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
-                        <Truck className="w-4 h-4" />
-                        <span>Home Delivery — Mecheda</span>
-                      </div>
-                      {orderDetails.customer_addresses && (
-                        <div className="text-xs text-stone-300 pl-6 space-y-0.5">
-                          <p className="font-semibold text-white">{orderDetails.customer_addresses.address_line}</p>
-                          <p>{orderDetails.customer_addresses.area}, {orderDetails.customer_addresses.city} - {orderDetails.customer_addresses.pincode}</p>
-                          {orderDetails.customer_addresses.landmark && (
-                            <p className="text-stone-400">Landmark: {orderDetails.customer_addresses.landmark}</p>
-                          )}
-                          {orderDetails.customer_addresses.delivery_zones && (
-                            <p className="text-brand-400">Zone: {orderDetails.customer_addresses.delivery_zones.name}</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {orderDetails.special_instructions && (
-                    <div className="mt-2 pt-2 border-t border-stone-800 text-xs text-stone-300">
-                      <span className="font-semibold text-stone-400">Note from customer:</span> "{orderDetails.special_instructions}"
-                    </div>
-                  )}
-                </div>
-
-                {/* Ordered Items List */}
-                <div className="bg-stone-950/60 p-4 rounded-2xl border border-stone-800 space-y-3">
-                  <div className="text-xs font-bold text-stone-400 uppercase tracking-wider">
-                    Ordered Dishes Snapshot
-                  </div>
-                  <div className="divide-y divide-stone-800">
-                    {orderDetails.order_items?.map((item) => (
-                      <div key={item.id} className="py-2.5 flex items-center justify-between text-xs">
+                  {orderDetails.order_type === 'HOME_DELIVERY' && orderDetails.customer_addresses && (
+                    <div className="text-xs text-stone-300 pt-1 border-t border-stone-800/80">
+                      <div className="flex items-start gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-brand-400 shrink-0 mt-0.5" />
                         <div>
-                          <div className="font-semibold text-white">{item.item_name_snapshot}</div>
-                          <div className="text-stone-400 text-[11px]">
-                            {item.quantity} × ₹{item.unit_price_snapshot}
-                          </div>
+                          <p>{orderDetails.customer_addresses.address_line}</p>
+                          <p className="text-stone-400">
+                            {orderDetails.customer_addresses.area}, {orderDetails.customer_addresses.city} - {orderDetails.customer_addresses.pincode}
+                          </p>
+                          {orderDetails.customer_addresses.landmark && (
+                            <p className="text-stone-500 text-[11px]">Landmark: {orderDetails.customer_addresses.landmark}</p>
+                          )}
                         </div>
-                        <div className="font-bold text-stone-200">
-                          ₹{item.line_total}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Order Items */}
+                <div className="space-y-2">
+                  <div className="text-xs font-bold uppercase tracking-wider text-stone-400">Ordered Items</div>
+                  <div className="space-y-1.5">
+                    {orderDetails.order_items?.map((it) => (
+                      <div
+                        key={it.id}
+                        className="flex items-center justify-between p-3 rounded-xl bg-stone-950/60 border border-stone-800/80 text-xs"
+                      >
+                        <div>
+                          <span className="font-bold text-white">{it.item_name_snapshot}</span>
+                          <span className="text-stone-400 ml-2">₹{it.unit_price_snapshot} × {it.quantity}</span>
                         </div>
+                        <span className="font-mono font-bold text-stone-200">₹{it.line_total}</span>
                       </div>
                     ))}
                   </div>
-
-                  {/* Totals Breakdown */}
-                  <div className="pt-3 border-t border-stone-800 text-xs space-y-1">
-                    <div className="flex justify-between text-stone-400">
-                      <span>Subtotal:</span>
-                      <span>₹{orderDetails.subtotal}</span>
-                    </div>
-                    {orderDetails.order_type === 'HOME_DELIVERY' && (
-                      <div className="flex justify-between text-stone-400">
-                        <span>Delivery Charge:</span>
-                        <span>₹{orderDetails.delivery_charge}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between text-base font-bold text-white pt-1 border-t border-stone-800">
-                      <span>Grand Total:</span>
-                      <span className="text-brand-400">₹{orderDetails.grand_total}</span>
-                    </div>
-                  </div>
                 </div>
 
-                {/* Payment Breakdown Section */}
-                <div className="bg-stone-950/60 p-4 rounded-2xl border border-stone-800 space-y-2">
-                  <div className="text-xs font-bold text-stone-400 uppercase tracking-wider">
-                    Payment Breakdown
+                {/* Bill Breakdown */}
+                <div className="bg-stone-950/60 p-4 rounded-2xl border border-stone-800 space-y-1.5 text-xs">
+                  <div className="flex justify-between text-stone-400">
+                    <span>Subtotal</span>
+                    <span>₹{orderDetails.subtotal}</span>
                   </div>
-                  {orderDetails.order_type === 'HOME_DELIVERY' ? (
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      <div className="bg-stone-900 p-2.5 rounded-xl border border-stone-800">
-                        <span className="text-[11px] text-stone-400 block">PhonePe Advance (30%)</span>
-                        <span className="font-bold text-white text-sm">₹{orderDetails.advance_amount}</span>
-                        <span className="text-[10px] text-teal-400 block mt-0.5">
-                          Status: {orderDetails.payment_status}
-                        </span>
-                      </div>
-                      <div className="bg-stone-900 p-2.5 rounded-xl border border-stone-800">
-                        <span className="text-[11px] text-stone-400 block">COD at Doorstep (70%)</span>
-                        <span className="font-bold text-white text-sm">₹{orderDetails.cod_amount}</span>
-                        <span className="text-[10px] text-amber-400 block mt-0.5">Pay on delivery</span>
-                      </div>
+                  {orderDetails.order_type === 'HOME_DELIVERY' && (
+                    <div className="flex justify-between text-stone-400">
+                      <span>Delivery Charge</span>
+                      <span>₹{orderDetails.delivery_charge}</span>
                     </div>
-                  ) : (
-                    <p className="text-xs text-stone-400">
-                      Dine-in counter billing: Customer will pay total of ₹{orderDetails.grand_total} directly at cashier counter.
-                    </p>
                   )}
-
-                  {orderDetails.payment_reference && (
-                    <div className="p-2.5 rounded-xl bg-stone-900 border border-stone-800 text-xs">
-                      <span className="text-stone-400">Customer Payment Reference / UTR: </span>
-                      <strong className="text-brand-300 font-mono">{orderDetails.payment_reference}</strong>
+                  <div className="flex justify-between text-sm font-extrabold text-white pt-2 border-t border-stone-800">
+                    <span>Grand Total</span>
+                    <span className="text-brand-400">₹{orderDetails.grand_total}</span>
+                  </div>
+                  {orderDetails.order_type === 'HOME_DELIVERY' && (
+                    <div className="flex justify-between text-[11px] text-stone-400 pt-1">
+                      <span>Advance: ₹{orderDetails.advance_amount}</span>
+                      <span>Remaining COD: ₹{orderDetails.cod_amount}</span>
                     </div>
                   )}
                 </div>
 
                 {/* Status Timeline History */}
                 {orderDetails.order_status_history && orderDetails.order_status_history.length > 0 && (
-                  <div className="bg-stone-950/60 p-4 rounded-2xl border border-stone-800 space-y-2">
-                    <div className="text-xs font-bold text-stone-400 uppercase tracking-wider">
-                      Order Lifecycle History
-                    </div>
-                    <div className="space-y-2 pl-2 border-l-2 border-brand-500/40 text-xs">
-                      {orderDetails.order_status_history.map((hist) => (
-                        <div key={hist.id} className="relative pl-3">
-                          <div className="font-semibold text-stone-200">
-                            {hist.new_status.replace(/_/g, ' ')}
+                  <div className="space-y-2">
+                    <div className="text-xs font-bold uppercase tracking-wider text-stone-400">Status History</div>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
+                      {orderDetails.order_status_history.map((h) => (
+                        <div key={h.id} className="text-[11px] p-2 rounded-lg bg-stone-950/40 border border-stone-800/60 flex items-center justify-between">
+                          <div>
+                            <span className="font-bold text-stone-200">{h.new_status}</span>
+                            {h.note && <span className="text-stone-400 ml-2">({h.note})</span>}
                           </div>
-                          <div className="text-[11px] text-stone-400">
-                            {new Date(hist.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                            {hist.note ? ` — ${hist.note}` : ''}
-                          </div>
+                          <span className="text-stone-500 font-mono">
+                            {new Date(h.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
-
-                {/* OWNER STATUS TRANSITION ACTIONS (Requirement 11, 12, 13) */}
-                <div className="p-4 rounded-2xl bg-stone-950 border border-brand-500/30 space-y-3">
-                  <div className="text-xs font-bold text-white uppercase tracking-wider">
-                    Workflow Actions
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {/* DINE-IN WORKFLOW: PENDING -> ACCEPTED -> PREPARING -> READY -> SERVED -> COMPLETED */}
-                    {orderDetails.order_type === 'DINE_IN' && (
-                      <>
-                        {orderDetails.order_status === 'PENDING' && (
-                          <button
-                            disabled={actionLoading}
-                            onClick={() => handleStatusTransition('ACCEPTED', 'Accepted by kitchen')}
-                            className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition-all active:scale-95"
-                          >
-                            Accept Order
-                          </button>
-                        )}
-                        {orderDetails.order_status === 'ACCEPTED' && (
-                          <button
-                            disabled={actionLoading}
-                            onClick={() => handleStatusTransition('PREPARING', 'Food being prepared in kitchen')}
-                            className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md transition-all active:scale-95"
-                          >
-                            Mark Preparing
-                          </button>
-                        )}
-                        {orderDetails.order_status === 'PREPARING' && (
-                          <button
-                            disabled={actionLoading}
-                            onClick={() => handleStatusTransition('READY', 'Food ready at pickup counter')}
-                            className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-md transition-all active:scale-95"
-                          >
-                            Mark Ready
-                          </button>
-                        )}
-                        {orderDetails.order_status === 'READY' && (
-                          <button
-                            disabled={actionLoading}
-                            onClick={() => handleStatusTransition('SERVED', 'Served to table. Pay bill at counter.')}
-                            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all active:scale-95"
-                          >
-                            Mark Served
-                          </button>
-                        )}
-                        {orderDetails.order_status === 'SERVED' && (
-                          <button
-                            disabled={actionLoading}
-                            onClick={() => handleStatusTransition('COMPLETED', 'Bill paid at counter and order completed')}
-                            className="px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold shadow-md transition-all active:scale-95"
-                          >
-                            Complete Order (Bill Paid)
-                          </button>
-                        )}
-                      </>
-                    )}
-
-                    {/* HOME DELIVERY WORKFLOW: PENDING/PAYMENT_SUBMITTED -> PAYMENT_VERIFIED -> ACCEPTED -> PREPARING -> READY -> OUT_FOR_DELIVERY -> COMPLETED */}
-                    {orderDetails.order_type === 'HOME_DELIVERY' && (
-                      <>
-                        {orderDetails.payment_status === 'SUBMITTED' && (
-                          <button
-                            onClick={() => {
-                              setSelectedOrderId(null);
-                              onSelectTab('payments');
-                            }}
-                            className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md transition-all active:scale-95"
-                          >
-                            Go to Payment Verification Queue
-                          </button>
-                        )}
-
-                        {orderDetails.payment_status === 'VERIFIED' && orderDetails.order_status === 'PAYMENT_VERIFIED' && (
-                          <button
-                            disabled={actionLoading}
-                            onClick={() => handleStatusTransition('ACCEPTED', 'Order accepted after payment verification')}
-                            className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition-all active:scale-95"
-                          >
-                            Accept Order
-                          </button>
-                        )}
-
-                        {orderDetails.order_status === 'ACCEPTED' && (
-                          <button
-                            disabled={actionLoading}
-                            onClick={() => handleStatusTransition('PREPARING', 'Food being cooked')}
-                            className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md transition-all active:scale-95"
-                          >
-                            Mark Preparing
-                          </button>
-                        )}
-
-                        {orderDetails.order_status === 'PREPARING' && (
-                          <button
-                            disabled={actionLoading}
-                            onClick={() => handleStatusTransition('READY', 'Food packaged and ready for dispatch')}
-                            className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-md transition-all active:scale-95"
-                          >
-                            Mark Ready
-                          </button>
-                        )}
-
-                        {orderDetails.order_status === 'READY' && (
-                          <button
-                            disabled={actionLoading}
-                            onClick={() => handleStatusTransition('OUT_FOR_DELIVERY', 'Dispatched with delivery rider')}
-                            className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md transition-all active:scale-95"
-                          >
-                            Dispatch Out For Delivery
-                          </button>
-                        )}
-
-                        {orderDetails.order_status === 'OUT_FOR_DELIVERY' && (
-                          <button
-                            disabled={actionLoading}
-                            onClick={() => handleStatusTransition('COMPLETED', 'Delivered and COD collected')}
-                            className="px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold shadow-md transition-all active:scale-95"
-                          >
-                            Complete Order (Delivered & COD Collected)
-                          </button>
-                        )}
-                      </>
-                    )}
-
-                    {/* Cancellation Button (Only if not already finished) */}
-                    {!['COMPLETED', 'CANCELLED', 'REJECTED'].includes(orderDetails.order_status) && (
-                      <button
-                        onClick={() => setShowCancelModal(true)}
-                        className="px-3 py-2 rounded-xl bg-stone-800 hover:bg-red-950/60 text-red-300 hover:text-red-200 text-xs font-bold border border-red-500/30 transition-all ml-auto"
-                      >
-                        Cancel Order
-                      </button>
-                    )}
-                  </div>
-                </div>
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* CANCEL ORDER CONFIRMATION MODAL */}
-      {showCancelModal && (
-        <div className="fixed inset-0 z-60 bg-black/85 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-stone-900 border border-stone-800 w-full max-w-md rounded-3xl p-6 text-white space-y-4">
-            <div className="flex items-center gap-3 text-red-400">
-              <AlertTriangle className="w-6 h-6" />
-              <h3 className="font-outfit font-extrabold text-lg text-white">
-                Cancel Order Confirmation
-              </h3>
-            </div>
-
-            <p className="text-xs text-stone-300">
-              Are you sure you want to cancel this order? This action will update the status to CANCELLED and log an audit record.
-            </p>
-
-            <div>
-              <label className="block text-xs font-semibold text-stone-400 mb-1">
-                Cancellation Reason (Optional)
-              </label>
-              <textarea
-                rows={3}
-                placeholder="e.g., Customer requested cancellation, out of stock, etc."
-                value={cancellationReason}
-                onChange={(e) => setCancellationReason(e.target.value)}
-                className="w-full p-2.5 bg-stone-950 text-white text-xs rounded-xl border border-stone-700 focus:outline-hidden focus:border-red-500"
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                onClick={() => setShowCancelModal(false)}
-                className="px-4 py-2 rounded-xl bg-stone-800 text-stone-300 text-xs font-semibold hover:bg-stone-700"
-              >
-                Go Back
-              </button>
-              <button
-                disabled={actionLoading}
-                onClick={handleConfirmCancel}
-                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-md transition-all active:scale-95"
-              >
-                {actionLoading ? 'Cancelling...' : 'Confirm Cancellation'}
-              </button>
-            </div>
           </div>
         </div>
       )}

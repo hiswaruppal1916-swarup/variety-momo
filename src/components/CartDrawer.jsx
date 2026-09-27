@@ -139,7 +139,7 @@ export default function CartDrawer() {
 
     // Format items for backend RPC
     const orderItemsPayload = cartItems.map((ci) => ({
-      menu_item_id: ci.item.dbId,
+      menu_item_id: ci.item.dbId || ci.item.id,
       quantity: ci.quantity
     }));
 
@@ -431,7 +431,7 @@ export default function CartDrawer() {
               <button
                 onClick={() => {
                   closeCart();
-                  openOrderTracking();
+                  openOrderTracking(lastCreatedOrder.order_number, lastCreatedOrder.tracking_token);
                 }}
                 className="w-full py-3.5 px-4 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-outfit font-bold text-xs uppercase tracking-wider shadow-md shadow-brand-600/30 transition-all flex items-center justify-center gap-2 active:scale-95"
               >
@@ -449,7 +449,7 @@ export default function CartDrawer() {
                 </a>
 
                 <a
-                  href={`https://wa.me/917827427377?text=${encodeURIComponent(
+                  href={`https://wa.me/917827423777?text=${encodeURIComponent(
                     `Hello Variety Momo, I just placed order #${lastCreatedOrder.order_number}`
                   )}`}
                   target="_blank"
@@ -979,7 +979,14 @@ export default function CartDrawer() {
         )}
 
         {checkoutStep === 'checkout' && (
-          <div className="p-4 border-t border-stone-100 bg-white shrink-0 pb-safe flex gap-2">
+          <div className="p-4 border-t border-stone-100 bg-white shrink-0 pb-safe space-y-2">
+            {submitError && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                <span>{submitError}</span>
+              </div>
+            )}
+            <div className="flex gap-2">
             <button
               type="button"
               onClick={() => setCheckoutStep('cart')}
@@ -1013,6 +1020,7 @@ export default function CartDrawer() {
                 </>
               )}
             </button>
+            </div>
           </div>
         )}
       </div>

@@ -15,6 +15,7 @@ import ReviewsSection from './components/ReviewsSection';
 import BottomNav from './components/BottomNav';
 import SearchModal from './components/SearchModal';
 import OrderTrackingModal from './components/OrderTrackingModal';
+import CustomerNotificationModal from './components/CustomerNotificationModal';
 import Footer from './components/Footer';
 import { getMenuItems } from './services/restaurantService';
 import { menuItems as fallbackMenuItems } from './data/menuItems';
@@ -283,7 +284,7 @@ function RestaurantApp({ onNavigate }) {
 
           {/* WhatsApp Floating Button */}
           <a
-            href="https://wa.me/917827427377?text=Hello%20Variety%20Momo%2C%20I%20want%20to%20know%20more%20about%20your%20menu%2Forder."
+            href="https://wa.me/917827423777?text=Hello%20Variety%20Momo%2C%20I%20want%20to%20know%20more%20about%20your%20menu%2Forder."
             target="_blank"
             rel="noopener noreferrer"
             className="w-12 h-12 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-600/30 transition-all active:scale-95"
@@ -303,6 +304,7 @@ function RestaurantApp({ onNavigate }) {
       <CartDrawer />
       <SearchModal />
       <OrderTrackingModal />
+      <CustomerNotificationModal />
 
       {/* PWA In-App Installation Prompt */}
       <PwaInstallPrompt />

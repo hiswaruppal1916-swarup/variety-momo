@@ -12,20 +12,62 @@ import {
   AlertCircle,
   Loader2,
   ShieldCheck,
-  Building
+  Building,
+  Bell,
+  BellRing,
+  Send
 } from 'lucide-react';
 import {
   getRestaurantSettings,
   updateRestaurantSettings,
   uploadStorageAsset
 } from '../../services/restaurantService';
+import { sendTestOwnerNotification } from '../../lib/firebase';
 
-export default function SettingsTab() {
+export default function SettingsTab({ onOpenPushDiagnostic }) {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+
+  // Notification Preferences (Requirement 19)
+  const [notifPrefs, setNotifPrefs] = useState(() => {
+    try {
+      const stored = localStorage.getItem('variety_momo_owner_notif_prefs');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {}
+    return {
+      new_order: true,
+      payment_submitted: true,
+      customer_cancellation: true,
+      order_status_events: true,
+      payment_verified: true
+    };
+  });
+  const [testSending, setTestSending] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+
+  const togglePref = (key) => {
+    setNotifPrefs((prev) => {
+      const updated = { ...prev, [key]: !prev[key] };
+      localStorage.setItem('variety_momo_owner_notif_prefs', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleSendTestPush = async () => {
+    setTestSending(true);
+    setTestResult(null);
+    try {
+      const res = await sendTestOwnerNotification();
+      setTestResult(res);
+    } catch (err) {
+      setTestResult({ success: false, error: err.message });
+    } finally {
+      setTestSending(false);
+    }
+  };
 
   // Form Fields
   const [restaurantName, setRestaurantName] = useState('');
@@ -421,6 +463,102 @@ export default function SettingsTab() {
               <span className="text-[11px] text-stone-500 mt-0.5 block">Used for WhatsApp chat integration (+91 7827423777)</span>
             </div>
           </div>
+        </div>
+
+        {/* SECTION 5: NOTIFICATION PREFERENCES & FCM CONTROLS (Requirement 19 & 30) */}
+        <div className="bg-stone-900/80 rounded-2xl border border-stone-800 p-5 space-y-4">
+          <div className="flex items-center justify-between border-b border-stone-800 pb-2">
+            <div className="flex items-center gap-2 text-brand-400 font-bold uppercase tracking-wider text-xs">
+              <Bell className="w-4 h-4" />
+              <span>Owner Push Notification Preferences</span>
+            </div>
+            {onOpenPushDiagnostic && (
+              <button
+                type="button"
+                onClick={onOpenPushDiagnostic}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold border border-stone-700 transition-colors"
+              >
+                <BellRing className="w-3.5 h-3.5 text-brand-400" />
+                <span>Advanced Diagnostics</span>
+              </button>
+            )}
+          </div>
+
+          <p className="text-xs text-stone-400">
+            Control which device push alerts arrive on your phone/browser. In-app notification center history will always remain preserved.
+          </p>
+
+          <div className="space-y-3 pt-1">
+            {[
+              { key: 'new_order', label: 'New Order Alerts', desc: 'Push alert immediately when a customer submits a new order' },
+              { key: 'payment_submitted', label: 'Payment Submitted Alerts', desc: 'Push alert when a customer enters PhonePe UTR payment reference' },
+              { key: 'customer_cancellation', label: 'Customer Cancellation Alerts', desc: 'Push alert if an order is cancelled or modified' },
+              { key: 'order_status_events', label: 'Order Status Events', desc: 'Push alerts for kitchen milestone transitions' },
+              { key: 'payment_verified', label: 'Payment Verification Confirmations', desc: 'Push alert confirmations when payment verification is recorded' }
+            ].map(({ key, label, desc }) => (
+              <div key={key} className="flex items-center justify-between p-3 rounded-xl bg-stone-950/60 border border-stone-800/80">
+                <div>
+                  <div className="text-xs font-bold text-white">{label}</div>
+                  <div className="text-[11px] text-stone-400">{desc}</div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(notifPrefs[key])}
+                    onChange={() => togglePref(key)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-stone-800 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-500"></div>
+                </label>
+              </div>
+            ))}
+          </div>
+
+          {/* Test Push Action */}
+          <div className="pt-3 border-t border-stone-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-stone-200">Send Test Push Notification</div>
+              <div className="text-[11px] text-stone-400">Verifies server-side Firebase FCM delivery to all active owner devices.</div>
+            </div>
+            <button
+              type="button"
+              disabled={testSending}
+              onClick={handleSendTestPush}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50"
+            >
+              {testSending ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Sending FCM Push...</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Send Test Notification</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {testResult && (
+            <div className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+              testResult.success
+                ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+            }`}>
+              {testResult.success ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Test push sent successfully to {testResult.sentCount ?? 0} active device(s)!</span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>Push dispatch error: {testResult.error || 'Failed to dispatch'}</span>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </form>
     </div>

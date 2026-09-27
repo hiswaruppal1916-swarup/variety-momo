@@ -61,27 +61,24 @@ export default function BottomNav({ activeSection, onNavigate }) {
           <span className="text-[10px] tracking-tight font-medium">Call</span>
         </a>
 
-        {/* Track Active Order or WhatsApp */}
-        {activeTracking ? (
-          <button
-            onClick={() => openOrderTracking()}
-            className="flex flex-col items-center gap-0.5 py-1 px-2 rounded-xl text-amber-600 font-bold transition-all animate-pulse"
-          >
-            <Clock className="w-5 h-5 text-amber-600" />
-            <span className="text-[10px] tracking-tight">Track</span>
-          </button>
-        ) : (
-          <a
-            href="https://wa.me/917827423777?text=Hello%20Variety%20Momo%2C%20I%20want%20to%20know%20more%20about%20your%20menu%2Forder."
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex flex-col items-center gap-0.5 py-1 px-2 rounded-xl text-stone-500 hover:text-emerald-600 transition-all"
-            title="Chat on WhatsApp"
-          >
-            <WhatsAppIcon className="w-5 h-5 text-emerald-600" />
-            <span className="text-[10px] tracking-tight">WhatsApp</span>
-          </a>
-        )}
+        {/* Track Active Order (Requirement 34) */}
+        <button
+          onClick={() => openOrderTracking()}
+          className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-xl transition-all ${
+            activeTracking
+              ? 'text-amber-600 font-bold'
+              : 'text-stone-500 hover:text-stone-800'
+          }`}
+          title="Track Order"
+        >
+          <div className="relative">
+            <Clock className={`w-5 h-5 ${activeTracking ? 'text-amber-600' : 'text-stone-500'}`} />
+            {activeTracking && (
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+            )}
+          </div>
+          <span className="text-[10px] tracking-tight">Track</span>
+        </button>
 
         {/* Cart Tab with Badge */}
         <button

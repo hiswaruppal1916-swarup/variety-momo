@@ -186,11 +186,29 @@ export async function triggerPushNotification({
   title,
   body,
   recipientType, // 'OWNER' or 'CUSTOMER'
+  eventType = null,
   orderId = null,
   orderNumber = null,
   url = '/'
 }) {
   try {
+    // Respect owner notification preferences if configured
+    if (recipientType === 'OWNER' && eventType && typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('variety_momo_owner_notif_prefs');
+        if (stored) {
+          const prefs = JSON.parse(stored);
+          const prefKey = eventType.toLowerCase();
+          if (prefs[prefKey] === false) {
+            console.log(`[FCM] Push skipped for ${eventType} due to owner preference setting.`);
+            return { success: true, skipped: true, message: `Skipped by owner preference: ${eventType}` };
+          }
+        }
+      } catch (e) {
+        // fallback to normal dispatch
+      }
+    }
+
     // 1. Fetch active target tokens from database RPC
     const { data: tokensData, error: tokensError } = await supabase.rpc('get_push_tokens_for_event', {
       p_recipient_type: recipientType,

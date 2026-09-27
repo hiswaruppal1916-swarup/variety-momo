@@ -287,49 +287,33 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-outfit font-extrabold text-base sm:text-lg text-white tracking-tight">
-                  Variety Momo • Management Console
+                  Variety Momo
                 </span>
-                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                  <ShieldCheck className="w-3 h-3" />
-                  <span>OWNER VERIFIED</span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-brand-500/15 text-brand-400 border border-brand-500/30">
+                  <ShieldCheck className="w-3 h-3 text-brand-400" />
+                  <span>OWNER</span>
                 </span>
               </div>
-              <div className="text-[11px] text-stone-400">
-                Logged in as <strong className="text-stone-300">{ownerProfile?.email}</strong>
+              <div className="text-[10px] text-stone-400 hidden sm:block">
+                {ownerProfile?.email}
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Notifications Shortcut */}
+            {/* Notification Bell (Requirement 32) */}
             <button
               onClick={() => setActiveTab('notifications')}
-              className="relative p-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-300 border border-stone-800 transition-colors"
+              className="relative p-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-200 border border-stone-800 transition-colors"
               title="Notifications"
             >
               <Bell className="w-4 h-4" />
               {unreadNotifications > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center">
-                  {unreadNotifications}
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-brand-500 text-white text-[10px] font-black flex items-center justify-center shadow-md animate-pulse">
+                  {unreadNotifications > 99 ? '99+' : unreadNotifications}
                 </span>
               )}
             </button>
-
-            {/* Push Notifications Status / Diagnostic Trigger */}
-            {fcmSupported && (
-              <button
-                onClick={() => setShowPushDiagnostic(true)}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all ${
-                  pushPermission === 'granted'
-                    ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
-                    : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/30 text-amber-300'
-                }`}
-                title="Open Push Notifications Diagnostic & Test Tool"
-              >
-                <BellRing className="w-3.5 h-3.5" />
-                <span>{pushPermission === 'granted' ? 'Push Diagnostics & Test' : 'Setup Push Alerts'}</span>
-              </button>
-            )}
 
             {/* Quick Public View */}
             <button
@@ -337,7 +321,7 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
               className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-300 text-xs font-semibold border border-stone-800 transition-colors"
             >
               <ExternalLink className="w-3.5 h-3.5" />
-              <span>Public Store</span>
+              <span>Store</span>
             </button>
           </div>
         </header>
@@ -394,7 +378,7 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
           )}
 
           {activeTab === 'settings' && (
-            <SettingsTab />
+            <SettingsTab onOpenPushDiagnostic={() => setShowPushDiagnostic(true)} />
           )}
 
           {activeTab === 'offers' && (

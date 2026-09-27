@@ -5,7 +5,8 @@ import {
   MapPin,
   Phone,
   Clock,
-  KeyRound
+  KeyRound,
+  Bell
 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { restaurantInfo } from '../data/restaurantInfo';
@@ -26,7 +27,9 @@ export default function Header({ onNavigate }) {
     openSearch,
     tableContext,
     activeTracking,
-    openOrderTracking
+    openOrderTracking,
+    customerUnreadCount,
+    openCustomerNotif
   } = useCart();
 
   const handleOwnerClick = (e) => {
@@ -131,6 +134,21 @@ export default function Header({ onNavigate }) {
           >
             <Search className="w-5 h-5" />
             <span className="hidden md:inline text-xs font-medium text-stone-500">Search</span>
+          </button>
+
+          {/* Customer Notification Bell (Requirement 9 & 31) */}
+          <button
+            onClick={openCustomerNotif}
+            className="relative p-2 sm:px-2.5 sm:py-2 rounded-full hover:bg-stone-100 text-stone-700 flex items-center justify-center transition-colors"
+            title="Notifications"
+            aria-label="Customer notifications"
+          >
+            <Bell className="w-5 h-5 text-stone-700" />
+            {customerUnreadCount > 0 && (
+              <span className="absolute top-1 right-1 bg-brand-600 text-white font-outfit text-[10px] font-extrabold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center shadow-xs animate-pulse">
+                {customerUnreadCount}
+              </span>
+            )}
           </button>
 
           {/* Cart Icon with Counter */}
