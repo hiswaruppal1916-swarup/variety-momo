@@ -2,7 +2,7 @@ import React from 'react';
 import { MapPin, Phone, Heart, ShieldCheck, Flame } from 'lucide-react';
 import { restaurantInfo } from '../data/restaurantInfo';
 
-export default function Footer() {
+export default function Footer({ onNavigate }) {
   return (
     <footer className="bg-stone-950 text-stone-400 text-xs pt-10 pb-20 md:pb-10 border-t border-stone-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -13,7 +13,7 @@ export default function Footer() {
               <img
                 src="/variety-momo-logo.jpg"
                 alt="Variety Momo Logo"
-                className="w-8 h-8 sm:w-9 sm:h-9 rounded-full object-cover shadow-sm ring-1 ring-stone-700"
+                className="w-10 h-10 rounded-full object-cover shadow-sm ring-1 ring-stone-700"
               />
               <span className="font-outfit font-extrabold text-lg text-white tracking-tight">
                 VARIETY <span className="text-brand-500">MOMO</span>
@@ -78,6 +78,12 @@ export default function Footer() {
             </div>
             <a
               href="/owner-login"
+              onClick={(e) => {
+                if (onNavigate) {
+                  e.preventDefault();
+                  onNavigate('owner-login');
+                }
+              }}
               className="text-stone-600 hover:text-stone-400 transition-colors text-[10px]"
             >
               Owner Portal

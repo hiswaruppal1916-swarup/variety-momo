@@ -39,6 +39,7 @@ import OffersTab from '../components/owner/OffersTab';
 import GalleryTab from '../components/owner/GalleryTab';
 import ReviewsTab from '../components/owner/ReviewsTab';
 import NotificationsTab from '../components/owner/NotificationsTab';
+import PushDiagnosticModal from '../components/owner/PushDiagnosticModal';
 
 export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -57,6 +58,7 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
   const [pushPermission, setPushPermission] = useState('default');
   const [pushEnabling, setPushEnabling] = useState(false);
   const [ownerFcmToken, setOwnerFcmToken] = useState(null);
+  const [showPushDiagnostic, setShowPushDiagnostic] = useState(false);
 
   // In-app Realtime Toast Banner (no aggressive browser alerts)
   const [toastAlert, setToastAlert] = useState(null);
@@ -313,27 +315,20 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
               )}
             </button>
 
-            {/* Push Notifications Status / Enable Button */}
+            {/* Push Notifications Status / Diagnostic Trigger */}
             {fcmSupported && (
-              pushPermission === 'granted' ? (
-                <span
-                  title="Browser Push Alerts Active"
-                  className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold"
-                >
-                  <BellRing className="w-3.5 h-3.5" />
-                  <span className="hidden md:inline">Push Active</span>
-                </span>
-              ) : (
-                <button
-                  onClick={handleEnablePush}
-                  disabled={pushEnabling}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-bold transition-all"
-                  title="Enable Push Notifications"
-                >
-                  <Bell className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="text-[11px]">{pushEnabling ? 'Enabling...' : 'Enable Push Alerts'}</span>
-                </button>
-              )
+              <button
+                onClick={() => setShowPushDiagnostic(true)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+                  pushPermission === 'granted'
+                    ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+                    : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/30 text-amber-300'
+                }`}
+                title="Open Push Notifications Diagnostic & Test Tool"
+              >
+                <BellRing className="w-3.5 h-3.5" />
+                <span>{pushPermission === 'granted' ? 'Push Diagnostics & Test' : 'Setup Push Alerts'}</span>
+              </button>
             )}
 
             {/* Quick Public View */}
@@ -422,6 +417,12 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
           )}
         </main>
       </div>
+
+      {/* FCM Push Notification Diagnostic & Test Modal */}
+      <PushDiagnosticModal
+        isOpen={showPushDiagnostic}
+        onClose={() => setShowPushDiagnostic(false)}
+      />
     </div>
   );
 }

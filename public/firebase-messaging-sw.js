@@ -2,11 +2,12 @@
 // Provides:
 // 1. Offline caching & PWA installability
 // 2. Firebase Cloud Messaging (FCM) push notifications for Owner & Customer
+// 3. Reliable notification click routing to orders / tracking pages
 
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
-const CACHE_NAME = 'variety-momo-v1';
+const CACHE_NAME = 'variety-momo-v2';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -31,7 +32,11 @@ const firebaseConfig = {
   measurementId: "G-F1NW7HZMGF"
 };
 
-firebase.initializeApp(firebaseConfig);
+try {
+  firebase.initializeApp(firebaseConfig);
+} catch (e) {
+  // App might already be initialized
+}
 
 let messaging = null;
 try {
@@ -47,8 +52,14 @@ if (messaging) {
 
     const title = payload.notification?.title || payload.data?.title || 'Variety Momo';
     const body = payload.notification?.body || payload.data?.body || 'You have an update on your order.';
-    const clickAction = payload.data?.click_action || payload.fcmOptions?.link || '/';
+    const clickAction =
+      payload.data?.click_action ||
+      payload.data?.url ||
+      payload.data?.link ||
+      payload.fcmOptions?.link ||
+      '/';
     const orderNumber = payload.data?.order_number || '';
+    const notifTag = orderNumber ? `order-${orderNumber}` : (payload.data?.tag || 'variety-momo-alert');
 
     const notificationOptions = {
       body,
@@ -56,7 +67,7 @@ if (messaging) {
       badge: '/favicon-96x96.png',
       image: payload.notification?.image || undefined,
       vibrate: [200, 100, 200, 100, 200],
-      tag: orderNumber ? `order-${orderNumber}` : 'variety-momo-notification',
+      tag: notifTag,
       renotify: true,
       data: {
         click_action: clickAction,
@@ -80,7 +91,14 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const data = event.notification.data || {};
-  let targetUrl = data.click_action || '/';
+  let targetUrl =
+    data.click_action ||
+    data.url ||
+    data.link ||
+    data.FCM_MSG?.data?.click_action ||
+    data.FCM_MSG?.data?.url ||
+    data.fcmOptions?.link ||
+    '/';
 
   // Ensure absolute URL
   if (targetUrl.startsWith('/')) {
@@ -89,10 +107,13 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      // If a tab is already open on this origin, focus it and navigate
+      // If a tab is already open on this origin, focus it, post navigation message, and navigate
       for (const client of windowClients) {
         if (client.url.startsWith(self.location.origin) && 'focus' in client) {
           client.focus();
+          if ('postMessage' in client) {
+            client.postMessage({ type: 'FCM_NAVIGATE', url: targetUrl });
+          }
           if ('navigate' in client) {
             return client.navigate(targetUrl);
           }
@@ -137,6 +158,11 @@ self.addEventListener('fetch', (event) => {
 
   // Skip non-GET and cross-origin API calls (Supabase, Firebase, Google APIs)
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) {
+    return;
+  }
+
+  // Skip dev server dynamic modules
+  if (url.pathname.startsWith('/@') || url.pathname.includes('/node_modules/')) {
     return;
   }
 

@@ -582,13 +582,19 @@ export async function verifyOrderPayment({ paymentId, orderId, note = null }) {
 
   if (error) throw error;
 
-  // Trigger push notification to Customer
+  // Trigger push notification to Customer with direct tracking URL
+  const verifyTrackingUrl =
+    data?.order_number && data?.tracking_token
+      ? `/?order_number=${encodeURIComponent(data.order_number)}&token=${encodeURIComponent(data.tracking_token)}`
+      : '/';
+
   triggerPushNotification({
-    title: '✅ Payment Verified!',
-    body: 'Your payment was successfully verified by Variety Momo. Fresh momos are being prepared!',
+    title: '✅ Advance Payment Verified',
+    body: 'Your advance payment has been verified by Variety Momo. Momos are being prepared!',
     recipientType: 'CUSTOMER',
     orderId: orderId,
-    url: '/'
+    orderNumber: data?.order_number || null,
+    url: verifyTrackingUrl
   }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
 
   return data;
@@ -607,12 +613,18 @@ export async function rejectOrderPayment({ paymentId, orderId, reason }) {
   if (error) throw error;
 
   // Trigger push notification to Customer
+  const rejectTrackingUrl =
+    data?.order_number && data?.tracking_token
+      ? `/?order_number=${encodeURIComponent(data.order_number)}&token=${encodeURIComponent(data.tracking_token)}`
+      : '/';
+
   triggerPushNotification({
     title: '❌ Payment Issue',
     body: `Your payment reference could not be verified: ${reason}. Please update your payment reference.`,
     recipientType: 'CUSTOMER',
     orderId: orderId,
-    url: '/'
+    orderNumber: data?.order_number || null,
+    url: rejectTrackingUrl
   }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
 
   return data;
@@ -630,22 +642,37 @@ export async function updateOrderStatus({ orderId, newStatus, note = null }) {
 
   if (error) throw error;
 
+  const orderNum = data?.order_number || '';
   const statusMessages = {
     CONFIRMED: 'Order confirmed! Kitchen is prepping ingredients.',
     PREPARING: 'Your momos are being freshly steamed and prepared! 🥟🔥',
-    READY: 'Your momos are packed and ready hot! 🥟',
+    READY: orderNum ? `Your Variety Momo order #${orderNum} is ready.` : 'Your Variety Momo order is ready.',
     OUT_FOR_DELIVERY: 'Our delivery rider is on the way! 🛵💨',
     SERVED: 'Your order has been served hot at your table! Enjoy! 🥟',
     COMPLETED: 'Thank you for ordering with Variety Momo! Come again soon! ❤️'
   };
 
+  const statusTitles = {
+    PREPARING: '🔥 Momos Steaming',
+    READY: orderNum ? `🥟 Order Ready #${orderNum}` : '🥟 Order Ready',
+    OUT_FOR_DELIVERY: '🛵 Out for Delivery',
+    SERVED: '🍽️ Order Served',
+    COMPLETED: '❤️ Order Completed'
+  };
+
+  const statusTrackingUrl =
+    data?.order_number && data?.tracking_token
+      ? `/?order_number=${encodeURIComponent(data.order_number)}&token=${encodeURIComponent(data.tracking_token)}`
+      : '/';
+
   // Trigger push notification to Customer
   triggerPushNotification({
-    title: `📦 Order Update: ${newStatus.replace(/_/g, ' ')}`,
+    title: statusTitles[newStatus] || `📦 Order Update: ${newStatus.replace(/_/g, ' ')}`,
     body: statusMessages[newStatus] || `Your order status changed to ${newStatus}.`,
     recipientType: 'CUSTOMER',
     orderId: orderId,
-    url: '/'
+    orderNumber: orderNum,
+    url: statusTrackingUrl
   }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
 
   return data;
@@ -662,13 +689,19 @@ export async function cancelOrder({ orderId, reason = null }) {
 
   if (error) throw error;
 
+  const cancelTrackingUrl =
+    data?.order_number && data?.tracking_token
+      ? `/?order_number=${encodeURIComponent(data.order_number)}&token=${encodeURIComponent(data.tracking_token)}`
+      : '/';
+
   // Trigger push notification to Customer
   triggerPushNotification({
     title: '⚠️ Order Cancelled',
     body: `Your order was cancelled${reason ? ': ' + reason : '.'}`,
     recipientType: 'CUSTOMER',
     orderId: orderId,
-    url: '/'
+    orderNumber: data?.order_number || null,
+    url: cancelTrackingUrl
   }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
 
   return data;

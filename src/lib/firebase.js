@@ -13,8 +13,10 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-F1NW7HZMGF"
 };
 
-// VAPID Public Key for Web Push Registration
-export const VAPID_KEY = import.meta.env.VITE_FIREBASE_VAPID_KEY || "";
+// VAPID Public Key for Web Push Registration (with reliable default)
+export const VAPID_KEY =
+  import.meta.env.VITE_FIREBASE_VAPID_KEY ||
+  "BMjrgSc-1MpImjqYXRvfole6-B1RfcJVMVhtZvj8nkqwRbZYA7QFSds3GmHG_T2-i_ldyoFne1cCIXG6hEBOSwk";
 
 // Initialize Firebase App safely (singleton pattern)
 let app = null;
@@ -75,11 +77,19 @@ export async function getFcmToken(customVapidKey = null) {
   }
 
   try {
-    // Register or retrieve service worker registration
-    const swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
-      scope: '/'
-    });
+    // 1. Ensure service worker registration is active
+    let swRegistration = await navigator.serviceWorker.getRegistration('/');
+    if (!swRegistration) {
+      swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+        scope: '/'
+      });
+    }
 
+    if (!swRegistration.active) {
+      swRegistration = await navigator.serviceWorker.ready;
+    }
+
+    // 2. Fetch FCM Token using active SW registration
     const messaging = getMessaging(app);
     const token = await getToken(messaging, {
       vapidKey: effectiveVapid,
@@ -87,7 +97,7 @@ export async function getFcmToken(customVapidKey = null) {
     });
 
     if (token) {
-      console.log('[FCM] Registration token acquired successfully.');
+      console.log('[FCM] Registration token acquired successfully:', token.substring(0, 12) + '...');
       return token;
     } else {
       console.warn('[FCM] No registration token available. Request permission to generate one.');
@@ -103,12 +113,13 @@ export async function getFcmToken(customVapidKey = null) {
 export function onForegroundMessage(callback) {
   if (!app) return () => {};
 
+  let unsubscribe = null;
   checkFcmSupport().then((supported) => {
     if (!supported) return;
 
     try {
       const messaging = getMessaging(app);
-      return onMessage(messaging, (payload) => {
+      unsubscribe = onMessage(messaging, (payload) => {
         console.log('[FCM] Foreground notification received:', payload);
         if (callback) callback(payload);
       });
@@ -117,7 +128,9 @@ export function onForegroundMessage(callback) {
     }
   });
 
-  return () => {};
+  return () => {
+    if (typeof unsubscribe === 'function') unsubscribe();
+  };
 }
 
 // Register subscription in Supabase database
@@ -134,7 +147,7 @@ export async function registerPushSubscriptionInDatabase({
     if (userType === 'OWNER') {
       const { data, error } = await supabase.rpc('register_owner_push_subscription', {
         p_fcm_token: fcmToken,
-        p_device_id: navigator.userAgent.substring(0, 50),
+        p_device_id: navigator.userAgent.substring(0, 80),
         p_platform: platform
       });
       if (error) throw error;
@@ -144,7 +157,7 @@ export async function registerPushSubscriptionInDatabase({
         p_order_number: orderNumber,
         p_tracking_token: trackingToken,
         p_fcm_token: fcmToken,
-        p_device_id: navigator.userAgent.substring(0, 50),
+        p_device_id: navigator.userAgent.substring(0, 80),
         p_platform: platform
       });
       if (error) throw error;
@@ -186,21 +199,27 @@ export async function triggerPushNotification({
 
     if (tokensError) {
       console.error('[FCM] Error fetching push tokens:', tokensError);
-      return;
+      return { success: false, error: tokensError.message };
     }
 
     const tokens = (tokensData || []).map((t) => t.fcm_token).filter(Boolean);
     if (tokens.length === 0) {
       console.log(`[FCM] No active push subscriptions found for ${recipientType}`);
-      return;
+      return { success: true, sentCount: 0, total: 0, message: `No active subscriptions for ${recipientType}` };
     }
 
     // 2. Call secure Edge Function to dispatch FCM v1
     const edgeFunctionUrl = 'https://uosceogqhwkjcksmyrjc.supabase.co/functions/v1/send-fcm-notification';
+    const anonKey =
+      import.meta.env.VITE_SUPABASE_ANON_KEY ||
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvc2Nlb2dxaHdramNrc215cmpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxMzU0MjAsImV4cCI6MjEwNDcxMTQyMH0.20vQCjfZjeHtzFacGEkaY3_F8IudfPADtzBr1fVsji8';
+
     const res = await fetch(edgeFunctionUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'apikey': anonKey,
+        'Authorization': `Bearer ${anonKey}`
       },
       body: JSON.stringify({
         title,
@@ -217,8 +236,34 @@ export async function triggerPushNotification({
 
     const result = await res.json();
     console.log('[FCM] Push dispatch result:', result);
+
+    // 3. Auto-cleanup any tokens that were rejected as UNREGISTERED / 404
+    if (result && Array.isArray(result.results)) {
+      for (const r of result.results) {
+        if (r.status === 404 || r.result?.error?.details?.[0]?.errorCode === 'UNREGISTERED') {
+          const matchPrefix = r.token.replace('...', '');
+          const fullToken = tokens.find((t) => t.startsWith(matchPrefix));
+          if (fullToken) {
+            unregisterPushSubscription(fullToken).catch(() => {});
+          }
+        }
+      }
+    }
+
     return result;
   } catch (err) {
     console.error('[FCM] Push notification trigger failed:', err);
+    return { success: false, error: err.message };
   }
+}
+
+// Send Owner Test Notification (Safe test path for Owner verification)
+export async function sendTestOwnerNotification() {
+  const timeStr = new Date().toLocaleTimeString('en-IN', { hour12: true });
+  return await triggerPushNotification({
+    title: '🔔 Variety Momo Test Notification',
+    body: `Push notification delivery verified successfully at ${timeStr}.`,
+    recipientType: 'OWNER',
+    url: '/owner-dashboard'
+  });
 }

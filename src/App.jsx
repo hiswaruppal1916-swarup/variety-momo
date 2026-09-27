@@ -7,7 +7,7 @@ import FoodCard from './components/FoodCard';
 import FoodSlider from './components/FoodSlider';
 import FoodDetailModal from './components/FoodDetailModal';
 import CartDrawer from './components/CartDrawer';
-import DineInDeliveryChoice from './components/DineInDeliveryChoice';
+import OrderModesInfoSection from './components/OrderModesInfoSection';
 import OffersSection from './components/OffersSection';
 import RestaurantInfo from './components/RestaurantInfo';
 import GallerySection from './components/GallerySection';
@@ -21,6 +21,7 @@ import { menuItems as fallbackMenuItems } from './data/menuItems';
 import { Flame, UtensilsCrossed, AlertCircle, Phone, MessageSquare, Clock } from 'lucide-react';
 import OwnerLogin from './pages/OwnerLogin';
 import OwnerDashboard from './pages/OwnerDashboard';
+import PwaInstallPrompt from './components/PwaInstallPrompt';
 
 function WhatsAppFloatingIcon({ className = 'w-5 h-5' }) {
   return (
@@ -30,7 +31,7 @@ function WhatsAppFloatingIcon({ className = 'w-5 h-5' }) {
   );
 }
 
-function RestaurantApp() {
+function RestaurantApp({ onNavigate }) {
   const { tableContext, tableError, activeTracking, openOrderTracking } = useCart();
 
   const [activeCategory, setActiveCategory] = useState('all');
@@ -88,10 +89,10 @@ function RestaurantApp() {
 
   return (
     <div className="min-h-screen bg-canvas text-stone-900 flex flex-col selection:bg-brand-600 selection:text-white">
-      {/* Top Header */}
-      <Header />
+      {/* 1. Header / Logo with Owner Entry */}
+      <Header onNavigate={onNavigate} />
 
-      {/* Table Context Banner if QR was scanned (Requirements 5 & 26) */}
+      {/* Table Context Banner if QR was scanned */}
       {tableContext && (
         <div className="bg-emerald-600 text-white text-xs py-2 px-4 shadow-sm">
           <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -120,14 +121,33 @@ function RestaurantApp() {
         </div>
       )}
 
-      {/* Hero Section */}
+      {/* Main Food-First Experience Flow (Requirement 14) */}
       <main className="flex-1">
+        {/* 2. Main restaurant hero */}
         <HeroSection />
 
-        {/* Dine-In vs Delivery Quick Selector */}
-        <DineInDeliveryChoice />
+        {/* 3. Featured / Popular Foods Sliders (Immediate Food Discovery) */}
+        <div id="popular" className="pt-2 sm:pt-4">
+          {activeCategory === 'all' && (
+            <FoodSlider
+              title="Customer Favourites"
+              subtitle="Most ordered & loved momos in Mecheda"
+              badgeText="Top Rated"
+              items={customerFavourites}
+            />
+          )}
 
-        {/* Horizontal Category Pill Bar */}
+          {activeCategory === 'all' && (
+            <FoodSlider
+              title="Chef's Special & Fusion Momos"
+              subtitle="Signature Gondhoraj, Kabul Malai, Chocolate & Pizza Momos"
+              badgeText="Unique Creations"
+              items={specialMomos}
+            />
+          )}
+        </div>
+
+        {/* 4. Categories Selection Bar */}
         <CategoryBar
           activeCategory={activeCategory}
           onSelectCategory={(catId) => {
@@ -137,27 +157,7 @@ function RestaurantApp() {
           }}
         />
 
-        {/* Customer Favourites Slider */}
-        {activeCategory === 'all' && (
-          <FoodSlider
-            title="Customer Favourites"
-            subtitle="Most ordered & loved momos in Mecheda"
-            badgeText="Top Rated"
-            items={customerFavourites}
-          />
-        )}
-
-        {/* Special Momos Slider */}
-        {activeCategory === 'all' && (
-          <FoodSlider
-            title="Chef's Special & Fusion Momos"
-            subtitle="Signature Gondhoraj, Kabul Malai, Chocolate & Pizza Momos"
-            badgeText="Unique Creations"
-            items={specialMomos}
-          />
-        )}
-
-        {/* Main Food Discovery Section */}
+        {/* 5. Explore Full Menu Grid */}
         <section id="menu" className="py-6 sm:py-10">
           <div className="max-w-7xl mx-auto px-3 sm:px-6">
             {/* Section Header with Dietary Filter Pills */}
@@ -238,21 +238,24 @@ function RestaurantApp() {
           </div>
         </section>
 
-        {/* Offers Section */}
+        {/* 6. Offers Section */}
         <OffersSection />
 
-        {/* Restaurant Story, Phone & Mecheda Location Info */}
-        <RestaurantInfo />
-
-        {/* Sizzling Kitchen Gallery */}
+        {/* 7. Sizzling Kitchen Gallery */}
         <GallerySection />
 
-        {/* Customer Testimonials & Reviews */}
+        {/* 8. Customer Reviews (Authentic Bengali & Local Mecheda Experiences) */}
         <ReviewsSection />
+
+        {/* 9. Small Dine-In / Home Delivery Information Section (Requirement 4 & 14) */}
+        <OrderModesInfoSection />
+
+        {/* 10. Restaurant Story, Phone & Mecheda Location Info */}
+        <RestaurantInfo />
       </main>
 
-      {/* Desktop/Tablet Footer */}
-      <Footer />
+      {/* 11. Desktop/Tablet Footer */}
+      <Footer onNavigate={onNavigate} />
 
       {/* Floating Action Buttons for Call & WhatsApp & Active Order */}
       <div className="fixed bottom-20 md:bottom-6 right-4 z-30 flex flex-col items-end gap-2.5">
@@ -280,7 +283,7 @@ function RestaurantApp() {
 
           {/* WhatsApp Floating Button */}
           <a
-            href="https://wa.me/917827423777?text=Hello%20Variety%20Momo%2C%20I%20want%20to%20know%20more%20about%20your%20menu%2Forder."
+            href="https://wa.me/917827427377?text=Hello%20Variety%20Momo%2C%20I%20want%20to%20know%20more%20about%20your%20menu%2Forder."
             target="_blank"
             rel="noopener noreferrer"
             className="w-12 h-12 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-600/30 transition-all active:scale-95"
@@ -300,7 +303,9 @@ function RestaurantApp() {
       <CartDrawer />
       <SearchModal />
       <OrderTrackingModal />
-      <DineInDeliveryChoice isModal={false} />
+
+      {/* PWA In-App Installation Prompt */}
+      <PwaInstallPrompt />
     </div>
   );
 }
@@ -323,6 +328,32 @@ export default function App() {
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Handle FCM Notification click navigation when app is already focused
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      const handleSwMessage = (event) => {
+        if (event.data?.type === 'FCM_NAVIGATE' && event.data?.url) {
+          try {
+            const parsed = new URL(event.data.url, window.location.origin);
+            if (parsed.pathname.includes('/owner-dashboard')) {
+              setCurrentRoute('owner-dashboard');
+            } else if (parsed.pathname.includes('/owner-login')) {
+              setCurrentRoute('owner-login');
+            } else {
+              setCurrentRoute('home');
+            }
+            window.history.pushState({}, '', parsed.pathname + parsed.search);
+          } catch (e) {
+            console.warn('[FCM] SW message navigation error:', e);
+          }
+        }
+      };
+
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+      return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+    }
   }, []);
 
   const navigate = (route) => {

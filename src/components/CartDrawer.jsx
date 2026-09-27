@@ -544,35 +544,36 @@ export default function CartDrawer() {
                 </h4>
 
                 {tableContext ? (
-                  <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
+                  <div className="p-3.5 rounded-2xl bg-emerald-50 border-2 border-emerald-500/70 flex items-center justify-between shadow-xs">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black text-sm">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black text-sm shadow-xs">
                         {tableContext.table_number}
                       </div>
                       <div>
-                        <div className="flex items-center gap-1 text-xs font-bold text-emerald-900">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Table QR Verified</span>
+                        <div className="flex items-center gap-1 text-xs font-bold text-emerald-950">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          <span>Selected Table: {tableContext.table_number}</span>
                         </div>
-                        <p className="text-[11px] text-emerald-700">
-                          Dining Table: <strong>{tableContext.table_number}</strong>
+                        <p className="text-[11px] text-emerald-700 font-medium">
+                          Food will be served directly to Table {tableContext.table_number}
                         </p>
                       </div>
                     </div>
 
                     <button
+                      type="button"
                       onClick={() => setTableByToken(null)}
-                      className="text-[10px] font-bold text-stone-500 hover:text-red-600 underline"
+                      className="text-[11px] font-bold text-stone-500 hover:text-red-600 px-2 py-1 rounded-lg hover:bg-white transition-all underline"
                     >
-                      Change Table
+                      Change
                     </button>
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2.5">
                     <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
-                      <p className="font-bold">Table QR scan is required for dine-in orders.</p>
+                      <p className="font-bold">Please select your table for Dine-In service:</p>
                       <p className="text-[11px] text-amber-800 mt-0.5">
-                        Please choose your table below or scan the QR code located on your table.
+                        Choose the table where you are seated (T-01 to T-06).
                       </p>
                     </div>
 
@@ -582,17 +583,24 @@ export default function CartDrawer() {
 
                     {/* Table Selector Pills */}
                     <div className="grid grid-cols-3 gap-2 pt-1">
-                      {tablesList.map((t) => (
+                      {((tablesList && tablesList.length > 0) ? tablesList : [
+                        { id: 't1', table_number: 'T-01', qr_token: 'tbl_momo_01_sec82' },
+                        { id: 't2', table_number: 'T-02', qr_token: 'tbl_momo_02_k73ea' },
+                        { id: 't3', table_number: 'T-03', qr_token: 'tbl_momo_03_9a22f' },
+                        { id: 't4', table_number: 'T-04', qr_token: 'tbl_momo_04_b14dc' },
+                        { id: 't5', table_number: 'T-05', qr_token: 'tbl_momo_05_c8891' },
+                        { id: 't6', table_number: 'T-06', qr_token: 'tbl_momo_06_e33fa' },
+                      ]).map((t) => (
                         <button
                           key={t.id}
                           type="button"
-                          onClick={() => setTableByToken(t.qr_token)}
-                          className="py-2.5 px-2 rounded-xl border border-stone-200 hover:border-brand-500 hover:bg-brand-50/50 text-center transition-all group"
+                          onClick={() => setTableByToken(t.qr_token || t.table_number)}
+                          className="py-2.5 px-2 rounded-xl border border-stone-200 hover:border-brand-500 hover:bg-brand-50/50 text-center transition-all group active:scale-95 bg-white shadow-xs"
                         >
                           <span className="block font-outfit font-black text-sm text-stone-900 group-hover:text-brand-600">
                             {t.table_number}
                           </span>
-                          <span className="block text-[9px] text-stone-400 font-semibold uppercase mt-0.5">
+                          <span className="block text-[9px] text-stone-500 font-semibold uppercase mt-0.5">
                             Select Table
                           </span>
                         </button>

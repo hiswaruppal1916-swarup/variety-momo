@@ -123,6 +123,19 @@ export function CartProvider({ children }) {
           setTableError(res?.error || 'Invalid or inactive table QR.');
         }
       });
+    } else {
+      // Restore previously scanned or selected table from sessionStorage
+      try {
+        const stored = sessionStorage.getItem('variety_momo_table');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && (parsed.qr_token || parsed.table_number)) {
+            setTableContext(parsed);
+          }
+        }
+      } catch (e) {
+        console.warn('SessionStorage table restore error:', e);
+      }
     }
   }, []);
 

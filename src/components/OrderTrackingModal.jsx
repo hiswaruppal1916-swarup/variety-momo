@@ -372,6 +372,39 @@ export default function OrderTrackingModal() {
                 </div>
               </div>
 
+              {/* PUSH NOTIFICATIONS SUBSCRIPTION FOR ORDER */}
+              {fcmSupported && pushStatus !== 'denied' && (
+                pushStatus === 'enabled' ? (
+                  <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs flex items-center justify-between text-emerald-950 animate-in fade-in duration-200">
+                    <div className="flex items-center gap-2">
+                      <BellRing className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span className="font-semibold">Push alerts active for Order #{order.order_number}</span>
+                    </div>
+                    <span className="text-[10px] font-bold bg-emerald-200/70 text-emerald-800 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                      Active
+                    </span>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200 text-xs flex items-center justify-between gap-3 animate-in fade-in duration-200">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Bell className="w-4 h-4 text-amber-600 shrink-0" />
+                      <div>
+                        <div className="font-bold text-amber-950 text-xs">Get Live Order Alerts</div>
+                        <div className="text-[11px] text-amber-800 leading-tight">Get phone alerts when momos are preparing or ready</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleEnableCustomerPush}
+                      disabled={pushStatus === 'requesting'}
+                      className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs font-bold transition-all shadow-xs shrink-0 flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <BellRing className="w-3.5 h-3.5" />
+                      <span>{pushStatus === 'requesting' ? 'Enabling...' : 'Enable Alerts'}</span>
+                    </button>
+                  </div>
+                )
+              )}
+
               {/* DINE-IN SERVED BANNER (Requirement 4) */}
               {isDineIn && order.order_status === 'SERVED' && (
                 <div className="p-5 rounded-2xl bg-emerald-50 border-2 border-emerald-500 text-emerald-950 space-y-3 text-center animate-in zoom-in-95">

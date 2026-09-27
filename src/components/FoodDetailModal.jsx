@@ -1,5 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { X, Star, Plus, Minus, ShoppingBag, Zap, CheckCircle2, ShieldCheck, Flame } from 'lucide-react';
+import {
+  X,
+  Star,
+  Plus,
+  Minus,
+  ShoppingBag,
+  Zap,
+  CheckCircle2,
+  ShieldCheck,
+  Flame,
+  UtensilsCrossed,
+  Bike
+} from 'lucide-react';
 import { useCart } from '../context/CartContext';
 
 export default function FoodDetailModal() {
@@ -7,11 +19,15 @@ export default function FoodDetailModal() {
     selectedFoodItem,
     closeFoodDetail,
     addToCart,
-    openCart
+    openCart,
+    orderType,
+    setOrderType,
+    tableContext
   } = useCart();
 
   const [selectedVariantId, setSelectedVariantId] = useState('half');
   const [qty, setQty] = useState(1);
+  const [localOrderType, setLocalOrderType] = useState('dinein');
 
   useEffect(() => {
     if (selectedFoodItem) {
@@ -19,33 +35,41 @@ export default function FoodDetailModal() {
         selectedFoodItem.defaultVariant || selectedFoodItem.variants?.[0]?.id || 'default'
       );
       setQty(1);
+      setLocalOrderType(orderType || 'dinein');
     }
-  }, [selectedFoodItem]);
+  }, [selectedFoodItem, orderType]);
 
   if (!selectedFoodItem) return null;
 
   const currentVariant =
-    selectedFoodItem.variants?.find(v => v.id === selectedVariantId) ||
+    selectedFoodItem.variants?.find((v) => v.id === selectedVariantId) ||
     selectedFoodItem.variants?.[0] || { id: 'default', name: 'Plate', price: selectedFoodItem.price || 0 };
 
   const isAvailable = selectedFoodItem?.isAvailable !== false && selectedFoodItem?.is_available !== false;
   const totalPrice = currentVariant.price * qty;
 
+  const handleSelectOrderType = (type) => {
+    setLocalOrderType(type);
+    setOrderType(type);
+  };
+
   const handleAddToCart = () => {
     if (!isAvailable) return;
+    setOrderType(localOrderType);
     addToCart(selectedFoodItem, currentVariant.id, qty);
     closeFoodDetail();
   };
 
   const handleBuyNow = () => {
     if (!isAvailable) return;
+    setOrderType(localOrderType);
     addToCart(selectedFoodItem, currentVariant.id, qty);
     closeFoodDetail();
     openCart();
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 transition-all">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 transition-all animate-in fade-in duration-200">
       {/* Overlay Backdrop */}
       <div
         className="fixed inset-0"
@@ -65,7 +89,7 @@ export default function FoodDetailModal() {
         </button>
 
         {/* Modal Header Image */}
-        <div className="relative h-64 sm:h-72 w-full bg-stone-900 shrink-0">
+        <div className="relative h-60 sm:h-72 w-full bg-stone-900 shrink-0">
           <img
             src={selectedFoodItem.image}
             alt={selectedFoodItem.name}
@@ -75,7 +99,7 @@ export default function FoodDetailModal() {
 
           {/* Badges on image */}
           <div className="absolute top-3.5 left-3.5 flex items-center gap-2">
-            <span className={selectedFoodItem.isVeg ? "badge-veg shadow-md" : "badge-non-veg shadow-md"} />
+            <span className={selectedFoodItem.isVeg ? 'badge-veg shadow-md' : 'badge-non-veg shadow-md'} />
             {selectedFoodItem.badge && (
               <span className="px-2.5 py-0.5 rounded-full bg-brand-600 text-white text-[10px] font-bold uppercase tracking-wider shadow-md">
                 {selectedFoodItem.badge}
@@ -88,8 +112,10 @@ export default function FoodDetailModal() {
             <div className="flex items-center gap-2 mb-1">
               <div className="flex items-center gap-1 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded text-xs font-bold text-amber-400">
                 <Star className="w-3.5 h-3.5 fill-amber-400" />
-                <span>{selectedFoodItem.rating.toFixed(1)}</span>
-                <span className="text-white/70 font-normal">({selectedFoodItem.ratingCount} reviews)</span>
+                <span>{selectedFoodItem.rating?.toFixed(1) || '4.8'}</span>
+                <span className="text-white/70 font-normal">
+                  ({selectedFoodItem.ratingCount || 100} reviews)
+                </span>
               </div>
             </div>
             <h2 className="font-outfit font-extrabold text-xl sm:text-2xl leading-tight drop-shadow-md">
@@ -102,23 +128,23 @@ export default function FoodDetailModal() {
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
           {/* Description */}
           <div>
-            <h4 className="text-xs font-bold uppercase text-stone-400 tracking-wider mb-1">
+            <h4 className="text-[11px] font-bold uppercase text-stone-400 tracking-wider mb-1">
               About This Dish
             </h4>
-            <p className="text-sm text-stone-700 leading-relaxed font-normal">
+            <p className="text-xs sm:text-sm text-stone-700 leading-relaxed font-normal">
               {selectedFoodItem.description}
             </p>
           </div>
 
           {/* Highlights & Inclusions */}
-          <div className="grid grid-cols-2 gap-2 text-xs text-stone-600 bg-stone-50 p-3 rounded-xl border border-stone-100">
+          <div className="grid grid-cols-2 gap-2 text-xs text-stone-600 bg-stone-50 p-3 rounded-2xl border border-stone-100">
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <span>Fiery Garlic Chutney</span>
+              <span>Fiery Red Chutney</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <span>Clear Pepper Broth</span>
+              <span>Hot Clear Broth</span>
             </div>
             <div className="flex items-center gap-1.5">
               <ShieldCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
@@ -126,17 +152,17 @@ export default function FoodDetailModal() {
             </div>
             <div className="flex items-center gap-1.5">
               <Flame className="w-3.5 h-3.5 text-brand-600 shrink-0" />
-              <span>Served Steaming Hot</span>
+              <span>Steaming Hot</span>
             </div>
           </div>
 
-          {/* Variant Selection */}
+          {/* Variant Selection (if applicable) */}
           {selectedFoodItem.variants && selectedFoodItem.variants.length > 0 && (
             <div>
-              <label className="block text-xs font-bold uppercase text-stone-400 tracking-wider mb-2">
+              <label className="block text-[11px] font-bold uppercase text-stone-400 tracking-wider mb-2">
                 Choose Portion / Size
               </label>
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-2 gap-2">
                 {selectedFoodItem.variants.map((v) => {
                   const isSelected = selectedVariantId === v.id;
                   return (
@@ -166,15 +192,15 @@ export default function FoodDetailModal() {
           {/* Quantity Stepper */}
           <div className="flex items-center justify-between py-2 border-t border-stone-100">
             <div>
-              <span className="text-xs font-bold uppercase text-stone-400 tracking-wider block">
+              <span className="text-[11px] font-bold uppercase text-stone-400 tracking-wider block">
                 Quantity
               </span>
-              <span className="text-xs text-stone-500">Select number of plates</span>
+              <span className="text-xs text-stone-500">Number of plates</span>
             </div>
             <div className="flex items-center rounded-xl bg-stone-100 p-1">
               <button
                 type="button"
-                onClick={() => setQty(q => Math.max(1, q - 1))}
+                onClick={() => setQty((q) => Math.max(1, q - 1))}
                 className="w-8 h-8 rounded-lg bg-white text-stone-800 shadow-xs flex items-center justify-center hover:bg-stone-50 active:scale-90 transition-all font-bold"
                 aria-label="Decrease quantity"
               >
@@ -185,11 +211,71 @@ export default function FoodDetailModal() {
               </span>
               <button
                 type="button"
-                onClick={() => setQty(q => q + 1)}
+                onClick={() => setQty((q) => q + 1)}
                 className="w-8 h-8 rounded-lg bg-brand-600 text-white shadow-xs flex items-center justify-center hover:bg-brand-700 active:scale-90 transition-all font-bold"
                 aria-label="Increase quantity"
               >
                 <Plus className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* ORDER TYPE CHOICE: DINE-IN OR HOME DELIVERY (Requirement 2 & 3) */}
+          <div className="pt-2 border-t border-stone-100 space-y-2">
+            <span className="block text-[11px] font-bold uppercase text-stone-400 tracking-wider">
+              How would you like to receive your order?
+            </span>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleSelectOrderType('dinein')}
+                className={`p-3 rounded-2xl border text-left transition-all flex items-start gap-2.5 ${
+                  localOrderType === 'dinein'
+                    ? 'border-brand-600 bg-brand-50/60 ring-2 ring-brand-600/20 shadow-xs'
+                    : 'border-stone-200 hover:border-stone-300 bg-white'
+                }`}
+              >
+                <div
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                    localOrderType === 'dinein'
+                      ? 'bg-brand-600 text-white'
+                      : 'bg-stone-100 text-stone-600'
+                  }`}
+                >
+                  <UtensilsCrossed className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-stone-900">Dine-In</div>
+                  <div className="text-[10px] text-stone-500 leading-tight">
+                    {tableContext ? `Table ${tableContext.table_number}` : 'Table selection'}
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectOrderType('delivery')}
+                className={`p-3 rounded-2xl border text-left transition-all flex items-start gap-2.5 ${
+                  localOrderType === 'delivery'
+                    ? 'border-brand-600 bg-brand-50/60 ring-2 ring-brand-600/20 shadow-xs'
+                    : 'border-stone-200 hover:border-stone-300 bg-white'
+                }`}
+              >
+                <div
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                    localOrderType === 'delivery'
+                      ? 'bg-brand-600 text-white'
+                      : 'bg-stone-100 text-stone-600'
+                  }`}
+                >
+                  <Bike className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-stone-900">Home Delivery</div>
+                  <div className="text-[10px] text-stone-500 leading-tight">
+                    Mecheda address
+                  </div>
+                </div>
               </button>
             </div>
           </div>
@@ -198,7 +284,9 @@ export default function FoodDetailModal() {
         {/* Sticky Action Footer */}
         <div className="p-4 bg-white border-t border-stone-100 flex items-center gap-3 shrink-0 pb-safe">
           <div className="shrink-0">
-            <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold">Total Price</div>
+            <div className="text-[10px] uppercase tracking-wider text-stone-400 font-semibold">
+              Total Price
+            </div>
             <div className="font-outfit font-black text-stone-900 text-xl leading-none">
               ₹{totalPrice}
             </div>

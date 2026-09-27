@@ -66,16 +66,17 @@ export default function HeroSection() {
                 href="#menu"
                 className="px-5 sm:px-6 py-2.5 sm:py-3 rounded-full bg-brand-600 hover:bg-brand-500 active:scale-95 text-white font-outfit font-bold text-xs sm:text-sm tracking-wide flex items-center gap-1.5 shadow-lg shadow-brand-600/30 transition-all"
               >
-                <span>{slide.cta}</span>
+                <span>Explore Menu</span>
                 <ChevronRight className="w-4 h-4" />
               </a>
 
-              <button
-                onClick={openDineInModal}
+              <a
+                href="#popular"
                 className="px-4 sm:px-5 py-2.5 sm:py-3 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-white backdrop-blur-md border border-white/20 font-medium text-xs sm:text-sm transition-all flex items-center gap-1.5"
               >
-                <span>Dine-In / Delivery</span>
-              </button>
+                <Flame className="w-4 h-4 text-amber-400" />
+                <span>Popular Momos</span>
+              </a>
             </div>
           </div>
 
