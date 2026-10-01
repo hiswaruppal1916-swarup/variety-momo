@@ -23,6 +23,7 @@ import { Flame, UtensilsCrossed, AlertCircle, Phone, MessageSquare, Clock } from
 import OwnerLogin from './pages/OwnerLogin';
 import OwnerDashboard from './pages/OwnerDashboard';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function WhatsAppFloatingIcon({ className = 'w-5 h-5' }) {
   return (
@@ -358,14 +359,14 @@ export default function App() {
     }
   }, []);
 
-  const navigate = (route) => {
+  const navigate = React.useCallback((route) => {
     let url = '/';
     if (route === 'owner-dashboard') url = '/owner-dashboard';
     else if (route === 'owner-login') url = '/owner-login';
     window.history.pushState({}, '', url);
     setCurrentRoute(route);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, []);
 
   const getInitialOwnerOrderId = () => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -377,17 +378,19 @@ export default function App() {
     return null;
   };
 
-  if (currentRoute === 'owner-dashboard') {
-    return <OwnerDashboard onNavigate={navigate} initialOrderId={getInitialOwnerOrderId()} />;
-  }
-
-  if (currentRoute === 'owner-login') {
-    return <OwnerLogin onNavigate={navigate} />;
-  }
-
   return (
-    <CartProvider>
-      <RestaurantApp onNavigate={navigate} />
-    </CartProvider>
+    <ErrorBoundary>
+      {currentRoute === 'owner-dashboard' && (
+        <OwnerDashboard onNavigate={navigate} initialOrderId={getInitialOwnerOrderId()} />
+      )}
+      {currentRoute === 'owner-login' && (
+        <OwnerLogin onNavigate={navigate} />
+      )}
+      {currentRoute !== 'owner-dashboard' && currentRoute !== 'owner-login' && (
+        <CartProvider>
+          <RestaurantApp onNavigate={navigate} />
+        </CartProvider>
+      )}
+    </ErrorBoundary>
   );
 }

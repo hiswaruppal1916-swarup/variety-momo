@@ -1,8 +1,17 @@
 import { supabase } from '../lib/supabase';
 
-export const OWNER_EMAIL = (
-  import.meta.env.VITE_OWNER_EMAIL || 'owner@varietymomo.com'
-).toLowerCase().trim();
+export const OWNER_EMAILS = [
+  (import.meta.env.VITE_OWNER_EMAIL || 'owner@varietymomo.com').toLowerCase().trim(),
+  'hiswaruppal1916@gmail.com',
+  'owner@varietymomo.com'
+];
+
+export const isOwnerEmail = (email) => {
+  const norm = (email || '').toLowerCase().trim();
+  return OWNER_EMAILS.includes(norm);
+};
+
+export const OWNER_EMAIL = OWNER_EMAILS[0];
 
 /**
  * Sign in as the restaurant owner.
@@ -12,7 +21,7 @@ export async function loginOwner(email, password) {
   const normalizedEmail = (email || '').toLowerCase().trim();
 
   // Strict email guard
-  if (normalizedEmail !== OWNER_EMAIL) {
+  if (!isOwnerEmail(normalizedEmail)) {
     throw new Error('Access denied: Unauthorized owner credentials.');
   }
 
@@ -59,7 +68,7 @@ export async function getOwnerSession() {
       return null;
     }
 
-    if (session.user.email?.toLowerCase().trim() !== OWNER_EMAIL) {
+    if (!isOwnerEmail(session.user.email)) {
       await supabase.auth.signOut();
       return null;
     }

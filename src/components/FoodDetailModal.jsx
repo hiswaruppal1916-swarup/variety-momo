@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   X,
+  ArrowLeft,
   Star,
   Plus,
   Minus,
@@ -79,10 +80,20 @@ export default function FoodDetailModal() {
 
       {/* Modal Dialog Card */}
       <div className="relative bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden z-10 max-h-[92vh] flex flex-col animate-in slide-in-from-bottom duration-300">
+        {/* Visible Back Button */}
+        <button
+          onClick={closeFoodDetail}
+          className="absolute top-3.5 left-3.5 z-20 px-3 py-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white text-xs font-bold backdrop-blur-md transition-colors flex items-center gap-1.5 shadow-md active:scale-95"
+          aria-label="Back to menu"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back</span>
+        </button>
+
         {/* Floating Close Button */}
         <button
           onClick={closeFoodDetail}
-          className="absolute top-3.5 right-3.5 z-20 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition-colors"
+          className="absolute top-3.5 right-3.5 z-20 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition-colors active:scale-95"
           aria-label="Close details"
         >
           <X className="w-5 h-5" />
@@ -98,7 +109,7 @@ export default function FoodDetailModal() {
           <div className="absolute inset-0 bg-gradient-to-t from-stone-950 via-transparent to-black/30" />
 
           {/* Badges on image */}
-          <div className="absolute top-3.5 left-3.5 flex items-center gap-2">
+          <div className="absolute top-14 left-3.5 flex items-center gap-2">
             <span className={selectedFoodItem.isVeg ? 'badge-veg shadow-md' : 'badge-non-veg shadow-md'} />
             {selectedFoodItem.badge && (
               <span className="px-2.5 py-0.5 rounded-full bg-brand-600 text-white text-[10px] font-bold uppercase tracking-wider shadow-md">

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   X,
+  ArrowLeft,
   Plus,
   Minus,
   Trash2,
@@ -256,7 +257,28 @@ export default function CartDrawer() {
         {/* Header */}
         <div className="p-4 border-b border-stone-100 flex items-center justify-between bg-stone-50/80 shrink-0">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-brand-600 text-white flex items-center justify-center font-bold">
+            {checkoutStep === 'checkout' ? (
+              <button
+                type="button"
+                onClick={() => setCheckoutStep('cart')}
+                className="p-1.5 -ml-1 rounded-full hover:bg-stone-200 text-stone-700 transition-colors flex items-center gap-1 active:scale-95"
+                title="Back to Cart"
+                aria-label="Back to Cart"
+              >
+                <ArrowLeft className="w-5 h-5 text-stone-800" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={closeCart}
+                className="p-1.5 -ml-1 rounded-full hover:bg-stone-200 text-stone-700 transition-colors flex items-center gap-1 active:scale-95 sm:hidden"
+                title="Back to Menu"
+                aria-label="Back to Menu"
+              >
+                <ArrowLeft className="w-5 h-5 text-stone-800" />
+              </button>
+            )}
+            <div className="w-8 h-8 rounded-full bg-brand-600 text-white flex items-center justify-center font-bold shrink-0">
               <ShoppingBag className="w-4 h-4" />
             </div>
             <div>
@@ -477,6 +499,16 @@ export default function CartDrawer() {
              STEP: CHECKOUT DETAILS & ADDRESS / TABLE FORM
              ============================================================== */
           <div className="flex-1 overflow-y-auto p-4 space-y-5">
+            {/* Top Back Navigation Link */}
+            <button
+              type="button"
+              onClick={() => setCheckoutStep('cart')}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100/80 px-3 py-1.5 rounded-lg active:scale-95 transition-all"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>← Back to Cart ({cartItems.length} {cartItems.length === 1 ? 'item' : 'items'})</span>
+            </button>
+
             {submitError && (
               <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />

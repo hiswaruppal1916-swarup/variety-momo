@@ -1,5 +1,5 @@
 import React from 'react';
-import { MapPin, Phone, Heart, ShieldCheck, Flame } from 'lucide-react';
+import { MapPin, Phone, Heart, ShieldCheck, Flame, KeyRound } from 'lucide-react';
 import { restaurantInfo } from '../data/restaurantInfo';
 
 export default function Footer({ onNavigate }) {
@@ -84,9 +84,11 @@ export default function Footer({ onNavigate }) {
                   onNavigate('owner-login');
                 }
               }}
-              className="text-stone-600 hover:text-stone-400 transition-colors text-[10px]"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-stone-900 hover:bg-stone-800 text-amber-400 hover:text-amber-300 border border-stone-800 transition-colors text-xs font-semibold"
+              title="Access Owner Dashboard"
             >
-              Owner Portal
+              <KeyRound className="w-3.5 h-3.5" />
+              <span>Owner Portal</span>
             </a>
           </div>
         </div>

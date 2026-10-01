@@ -7,12 +7,16 @@ import {
   CheckCheck,
   ShoppingBag,
   ArrowRight,
+  ArrowLeft,
   UtensilsCrossed,
   Bike,
   CreditCard,
-  AlertCircle
+  AlertCircle,
+  Trash2,
+  Calendar
 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
+import { formatKolkataDateTime } from '../services/restaurantService';
 
 export default function CustomerNotificationModal() {
   const {
@@ -22,11 +26,16 @@ export default function CustomerNotificationModal() {
     customerUnreadCount,
     markCustomerNotifRead,
     markAllCustomerNotifsRead,
+    deleteCustomerNotif,
+    deleteAllCustomerNotifs,
     openOrderTracking
   } = useCart();
 
   const [activeFilter, setActiveFilter] = useState('ALL'); // 'ALL' | 'UNREAD'
   const [markingAll, setMarkingAll] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   if (!isCustomerNotifOpen) return null;
 
@@ -54,23 +63,24 @@ export default function CustomerNotificationModal() {
     }
   };
 
-  const formatTime = (isoString) => {
-    if (!isoString) return '';
-    const date = new Date(isoString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
+  const handleDeleteOne = async (e, notif) => {
+    e.stopPropagation();
+    setDeletingId(notif.id);
+    try {
+      await deleteCustomerNotif(notif.id, notif.tracking_token);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return date.toLocaleDateString('en-IN', {
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+  const handleConfirmClearAll = async () => {
+    setDeletingAll(true);
+    try {
+      await deleteAllCustomerNotifs();
+      setShowClearConfirm(false);
+    } finally {
+      setDeletingAll(false);
+    }
   };
 
   const getNotifIcon = (notif) => {
@@ -95,8 +105,17 @@ export default function CustomerNotificationModal() {
         {/* Top Header */}
         <div className="p-4 sm:p-5 bg-stone-900 text-white flex items-center justify-between border-b border-stone-800 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-brand-600/30 border border-brand-500/40 text-brand-400 flex items-center justify-center shrink-0">
-              <Bell className="w-5 h-5" />
+            <button
+              type="button"
+              onClick={closeCustomerNotif}
+              className="p-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white transition-colors mr-1"
+              title="Back"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+
+            <div className="w-9 h-9 rounded-2xl bg-brand-600/30 border border-brand-500/40 text-brand-400 flex items-center justify-center shrink-0">
+              <Bell className="w-4 h-4" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -124,7 +143,7 @@ export default function CustomerNotificationModal() {
           </button>
         </div>
 
-        {/* Filter Tabs & Mark All as Read */}
+        {/* Filter Tabs, Mark Read, and Delete All */}
         <div className="px-4 py-2.5 bg-stone-50 border-b border-stone-100 flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-1">
             <button
@@ -149,16 +168,30 @@ export default function CustomerNotificationModal() {
             </button>
           </div>
 
-          {customerUnreadCount > 0 && (
-            <button
-              disabled={markingAll}
-              onClick={handleMarkAll}
-              className="text-[11px] font-bold text-brand-600 hover:text-brand-700 flex items-center gap-1 transition-colors disabled:opacity-50"
-            >
-              <CheckCheck className="w-3.5 h-3.5" />
-              <span>Mark all read</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {customerUnreadCount > 0 && (
+              <button
+                disabled={markingAll}
+                onClick={handleMarkAll}
+                className="text-[11px] font-bold text-brand-600 hover:text-brand-700 flex items-center gap-1 transition-colors disabled:opacity-50"
+              >
+                <CheckCheck className="w-3.5 h-3.5" />
+                <span>Mark read</span>
+              </button>
+            )}
+
+            {customerNotifications.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowClearConfirm(true)}
+                className="text-[11px] font-bold text-red-600 hover:text-red-700 flex items-center gap-1 transition-colors px-2 py-1 rounded-lg hover:bg-red-50"
+                title="Clear all notifications"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete All</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Notification List */}
@@ -184,7 +217,7 @@ export default function CustomerNotificationModal() {
                 onClick={() => handleNotificationClick(notif)}
                 className={`pt-2.5 first:pt-0 p-3 rounded-2xl transition-all cursor-pointer flex items-start gap-3 border ${
                   notif.is_read
-                    ? 'bg-white hover:bg-stone-50 border-transparent text-stone-600'
+                    ? 'bg-white hover:bg-stone-50 border-stone-100 text-stone-600'
                     : 'bg-brand-50/60 hover:bg-brand-50/90 border-brand-200/80 text-stone-900 shadow-xs'
                 }`}
               >
@@ -207,10 +240,22 @@ export default function CustomerNotificationModal() {
                     >
                       {notif.title}
                     </span>
-                    <span className="text-[10px] text-stone-400 shrink-0 font-medium flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {formatTime(notif.created_at)}
-                    </span>
+
+                    <button
+                      type="button"
+                      disabled={deletingId === notif.id}
+                      onClick={(e) => handleDeleteOne(e, notif)}
+                      className="p-1 rounded-md text-stone-400 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0 ml-1"
+                      title="Delete notification"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {/* Date and Time in Asia/Kolkata (Requirement 3) */}
+                  <div className="text-[10px] text-stone-500 font-semibold mb-1 flex items-center gap-1">
+                    <Calendar className="w-3 h-3 text-brand-600 shrink-0" />
+                    <span>{formatKolkataDateTime(notif.created_at)}</span>
                   </div>
 
                   <p className="text-xs text-stone-600 line-clamp-2 leading-relaxed">
@@ -241,6 +286,42 @@ export default function CustomerNotificationModal() {
             ))
           )}
         </div>
+
+        {/* Clear All Confirmation Dialog */}
+        {showClearConfirm && (
+          <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+            <div className="bg-white rounded-3xl p-5 max-w-xs w-full space-y-3 shadow-2xl border border-stone-200 text-stone-900 animate-in zoom-in-95">
+              <div className="w-10 h-10 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="text-center">
+                <h4 className="font-outfit font-extrabold text-stone-900 text-base">
+                  Delete All Notifications?
+                </h4>
+                <p className="text-xs text-stone-500 mt-1">
+                  This will remove all notifications from your list. This cannot be undone.
+                </p>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowClearConfirm(false)}
+                  className="flex-1 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold transition-colors"
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="button"
+                  disabled={deletingAll}
+                  onClick={handleConfirmClearAll}
+                  className="flex-1 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {deletingAll ? 'Deleting...' : 'DELETE ALL'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

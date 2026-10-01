@@ -44,7 +44,7 @@ export default function Header({ onNavigate }) {
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-stone-200/90 shadow-xs transition-all">
-      {/* Top Banner with Location, Call & WhatsApp */}
+      {/* Top Banner with Location, Call, WhatsApp & Owner Portal Link */}
       <div className="bg-stone-900 text-stone-200 text-xs py-1.5 px-3 sm:px-6 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 truncate">
           <MapPin className="w-3.5 h-3.5 text-brand-500 shrink-0" />
@@ -52,8 +52,8 @@ export default function Header({ onNavigate }) {
           <span className="hidden sm:inline text-stone-400">• Hot & Fresh Delivery</span>
         </div>
 
-        {/* Call and WhatsApp Quick Actions */}
-        <div className="flex items-center gap-3 shrink-0">
+        {/* Call, WhatsApp & Owner Quick Actions */}
+        <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
           <a
             href="tel:7827423777"
             className="flex items-center gap-1 text-stone-300 hover:text-white transition-colors"
@@ -73,39 +73,50 @@ export default function Header({ onNavigate }) {
             <WhatsAppIcon className="w-3.5 h-3.5" />
             <span className="hidden xs:inline">WhatsApp</span>
           </a>
+
+          {/* Quick Top Bar Owner Link */}
+          <a
+            href="/owner-login"
+            onClick={handleOwnerClick}
+            className="flex items-center gap-1 text-amber-400 hover:text-amber-300 transition-colors font-semibold pl-1 border-l border-stone-700"
+            title="Owner Management Portal"
+          >
+            <KeyRound className="w-3 h-3" />
+            <span className="text-[11px]">Owner</span>
+          </a>
         </div>
       </div>
 
       {/* Main Header Bar */}
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between gap-2">
-        {/* Brand Logo & Name (Enlarged & Sharp as requested in Requirement 9) */}
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between gap-1.5 sm:gap-2">
+        {/* Brand Logo & Name */}
         <a
           href="#"
           onClick={(e) => {
             e.preventDefault();
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
-          className="flex items-center gap-2.5 sm:gap-3 group shrink-0"
+          className="flex items-center gap-2 sm:gap-3 group shrink min-w-0"
         >
           <img
             src="/variety-momo-logo.jpg"
             alt="Variety Momo Logo"
-            className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 rounded-2xl object-cover shadow-sm ring-1 ring-stone-200/80 group-hover:scale-105 transition-transform"
+            className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-2xl object-cover shadow-sm ring-1 ring-stone-200/80 group-hover:scale-105 transition-transform shrink-0"
           />
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-outfit font-extrabold text-lg sm:text-xl md:text-2xl tracking-tight text-stone-900 leading-none">
+          <div className="min-w-0 truncate">
+            <div className="flex items-center gap-1">
+              <span className="font-outfit font-extrabold text-base sm:text-xl md:text-2xl tracking-tight text-stone-900 leading-none truncate">
                 VARIETY <span className="text-brand-600">MOMO</span>
               </span>
             </div>
-            <p className="text-[10px] sm:text-xs text-stone-500 font-medium tracking-wider mt-0.5">
+            <p className="text-[9px] sm:text-xs text-stone-500 font-medium tracking-wider mt-0.5 truncate">
               MECHEDA'S FAVOURITE
             </p>
           </div>
         </a>
 
-        {/* Center Indicators: Active Table QR or Live Tracking */}
-        <div className="flex items-center gap-2">
+        {/* Center Indicators: Active Table QR or Live Tracking (sm+ screens) */}
+        <div className="hidden sm:flex items-center gap-2">
           {tableContext && (
             <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-emerald-50 border border-emerald-300 text-emerald-800 text-[11px] sm:text-xs font-bold">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -124,28 +135,28 @@ export default function Header({ onNavigate }) {
           )}
         </div>
 
-        {/* Right Actions: Search, Cart & Owner Button (Requirement 8) */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        {/* Right Actions: Search, Notifications, Cart & Owner Button */}
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {/* Quick Search Button */}
           <button
             onClick={openSearch}
-            className="p-2 sm:px-3 sm:py-2 rounded-full hover:bg-stone-100 text-stone-700 flex items-center gap-1.5 transition-colors"
+            className="p-1.5 sm:px-2.5 sm:py-2 rounded-full hover:bg-stone-100 text-stone-700 flex items-center gap-1 transition-colors"
             aria-label="Search dishes"
           >
-            <Search className="w-5 h-5" />
+            <Search className="w-4 h-4 sm:w-5 sm:h-5" />
             <span className="hidden md:inline text-xs font-medium text-stone-500">Search</span>
           </button>
 
-          {/* Customer Notification Bell (Requirement 9 & 31) */}
+          {/* Customer Notification Bell */}
           <button
             onClick={openCustomerNotif}
-            className="relative p-2 sm:px-2.5 sm:py-2 rounded-full hover:bg-stone-100 text-stone-700 flex items-center justify-center transition-colors"
+            className="relative p-1.5 sm:px-2 sm:py-2 rounded-full hover:bg-stone-100 text-stone-700 flex items-center justify-center transition-colors"
             title="Notifications"
             aria-label="Customer notifications"
           >
-            <Bell className="w-5 h-5 text-stone-700" />
+            <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-stone-700" />
             {customerUnreadCount > 0 && (
-              <span className="absolute top-1 right-1 bg-brand-600 text-white font-outfit text-[10px] font-extrabold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center shadow-xs animate-pulse">
+              <span className="absolute top-0.5 right-0.5 bg-brand-600 text-white font-outfit text-[9px] font-extrabold min-w-[16px] h-[16px] px-1 rounded-full flex items-center justify-center shadow-xs animate-pulse">
                 {customerUnreadCount}
               </span>
             )}
@@ -154,27 +165,27 @@ export default function Header({ onNavigate }) {
           {/* Cart Icon with Counter */}
           <button
             onClick={openCart}
-            className="relative p-2 sm:px-3 sm:py-2 rounded-full bg-brand-600 hover:bg-brand-700 text-white flex items-center gap-1.5 shadow-md hover:shadow-lg transition-all active:scale-95"
+            className="relative p-1.5 sm:px-3 sm:py-2 rounded-full bg-brand-600 hover:bg-brand-700 text-white flex items-center gap-1 shadow-md hover:shadow-lg transition-all active:scale-95"
             aria-label="Open cart"
           >
-            <ShoppingBag className="w-5 h-5" />
+            <ShoppingBag className="w-4 h-4 sm:w-5 sm:h-5" />
             <span className="hidden sm:inline text-xs font-bold">Cart</span>
             {totalCount > 0 && (
-              <span className="bg-white text-brand-600 font-outfit text-xs font-extrabold w-5 h-5 rounded-full flex items-center justify-center shadow-xs">
+              <span className="bg-white text-brand-600 font-outfit text-[10px] sm:text-xs font-extrabold w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center shadow-xs">
                 {totalCount}
               </span>
             )}
           </button>
 
-          {/* Owner Dashboard Top-Bar Button (Requirement 8) */}
+          {/* Owner Dashboard Top-Bar Button - Highly visible on ALL screens */}
           <a
             href="/owner-login"
             onClick={handleOwnerClick}
-            className="p-2 sm:px-2.5 sm:py-1.5 rounded-full sm:rounded-xl bg-stone-100 hover:bg-stone-200 border border-stone-200/90 text-stone-700 hover:text-stone-900 flex items-center gap-1 transition-all active:scale-95"
+            className="px-2 py-1.5 sm:px-2.5 sm:py-1.5 rounded-full sm:rounded-xl bg-amber-500 hover:bg-amber-600 text-white flex items-center gap-1 shadow-sm transition-all active:scale-95 shrink-0"
             title="Owner Management Portal"
           >
-            <KeyRound className="w-4 h-4 text-amber-600" />
-            <span className="hidden sm:inline text-xs font-bold text-stone-700">Owner</span>
+            <KeyRound className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white shrink-0" />
+            <span className="text-[11px] sm:text-xs font-bold text-white">Owner</span>
           </a>
         </div>
       </div>

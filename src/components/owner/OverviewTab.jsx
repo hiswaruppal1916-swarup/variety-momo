@@ -40,10 +40,24 @@ export default function OverviewTab({
     {
       title: "Today's Orders",
       value: safeStats.today_orders,
+      subtitle: 'Asia/Kolkata Calendar Day',
       icon: ShoppingBag,
       color: 'text-amber-400',
       bgColor: 'bg-amber-500/10',
-      borderColor: 'border-amber-500/20'
+      borderColor: 'border-amber-500/20',
+      action: () => onSelectTab('orders', null, 'TODAY'),
+      actionText: "View Today's Orders"
+    },
+    {
+      title: 'All Orders',
+      value: safeStats.all_orders ?? safeStats.today_orders,
+      subtitle: 'All-time history',
+      icon: ShoppingBag,
+      color: 'text-cyan-400',
+      bgColor: 'bg-cyan-500/10',
+      borderColor: 'border-cyan-500/20',
+      action: () => onSelectTab('orders', null, 'ALL'),
+      actionText: 'View All Orders'
     },
     {
       title: "Today's Revenue",

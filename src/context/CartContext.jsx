@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import {
   getRestaurantSettings,
   getDeliveryZones,
@@ -6,7 +6,9 @@ import {
   getTables,
   getCustomerNotifications,
   markCustomerNotificationRead,
-  markAllCustomerNotificationsRead
+  markAllCustomerNotificationsRead,
+  deleteCustomerNotification,
+  deleteAllCustomerNotifications
 } from '../services/restaurantService';
 import { supabase } from '../lib/supabase';
 
@@ -318,7 +320,12 @@ export function CartProvider({ children }) {
     if (!customerTokens || customerTokens.length === 0) return;
     try {
       const data = await getCustomerNotifications(customerTokens);
-      setCustomerNotifications(data || []);
+      let dismissed = [];
+      try {
+        dismissed = JSON.parse(localStorage.getItem('variety_momo_dismissed_notifs') || '[]');
+      } catch (e) {}
+      const filtered = (data || []).filter((n) => !dismissed.includes(n.id));
+      setCustomerNotifications(filtered);
     } catch (err) {
       console.error('Error loading customer notifications:', err);
     }
@@ -355,8 +362,129 @@ export function CartProvider({ children }) {
 
   const customerUnreadCount = customerNotifications.filter((n) => !n.is_read).length;
 
-  const openCustomerNotif = () => setIsCustomerNotifOpen(true);
-  const closeCustomerNotif = () => setIsCustomerNotifOpen(false);
+  // Smart History Navigation for Android / PWA
+  const modalHistoryRef = useRef([]);
+
+  const pushModal = useCallback((modalId) => {
+    modalHistoryRef.current.push(modalId);
+    window.history.pushState({ varietyModal: modalId }, '');
+  }, []);
+
+  const popModal = useCallback((modalId, fallbackClose) => {
+    const idx = modalHistoryRef.current.lastIndexOf(modalId);
+    if (idx !== -1 && window.history.state?.varietyModal) {
+      modalHistoryRef.current.splice(idx, 1);
+      window.history.back();
+    } else {
+      if (idx !== -1) modalHistoryRef.current.splice(idx, 1);
+      fallbackClose();
+    }
+  }, []);
+
+  // Listen for hardware/browser back navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      // If modal was closed via browser/hardware back
+      if (modalHistoryRef.current.length > 0) {
+        const topModal = modalHistoryRef.current.pop();
+        if (topModal === 'customer-notif') setIsCustomerNotifOpen(false);
+        else if (topModal === 'order-tracking') setIsOrderTrackingOpen(false);
+        else if (topModal === 'search') setIsSearchOpen(false);
+        else if (topModal === 'food-detail') setSelectedFoodItem(null);
+        else if (topModal === 'cart') setIsCartOpen(false);
+        else if (topModal === 'dinein') setIsDineInModalOpen(false);
+        return;
+      }
+
+      // Check current open state as fallback
+      if (isCustomerNotifOpen) {
+        setIsCustomerNotifOpen(false);
+      } else if (isOrderTrackingOpen) {
+        setIsOrderTrackingOpen(false);
+      } else if (isSearchOpen) {
+        setIsSearchOpen(false);
+      } else if (selectedFoodItem) {
+        setSelectedFoodItem(null);
+      } else if (isCartOpen) {
+        setIsCartOpen(false);
+      } else if (isDineInModalOpen) {
+        setIsDineInModalOpen(false);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isCustomerNotifOpen, isOrderTrackingOpen, isSearchOpen, selectedFoodItem, isCartOpen, isDineInModalOpen]);
+
+  const openCart = useCallback(() => {
+    pushModal('cart');
+    setIsCartOpen(true);
+  }, [pushModal]);
+
+  const closeCart = useCallback(() => {
+    popModal('cart', () => setIsCartOpen(false));
+  }, [popModal]);
+
+  const openFoodDetail = useCallback((item) => {
+    pushModal('food-detail');
+    setSelectedFoodItem(item);
+  }, [pushModal]);
+
+  const closeFoodDetail = useCallback(() => {
+    popModal('food-detail', () => setSelectedFoodItem(null));
+  }, [popModal]);
+
+  const openSearch = useCallback(() => {
+    pushModal('search');
+    setIsSearchOpen(true);
+  }, [pushModal]);
+
+  const closeSearch = useCallback(() => {
+    popModal('search', () => setIsSearchOpen(false));
+  }, [popModal]);
+
+  const openDineInModal = useCallback(() => {
+    pushModal('dinein');
+    setIsDineInModalOpen(true);
+  }, [pushModal]);
+
+  const closeDineInModal = useCallback(() => {
+    popModal('dinein', () => setIsDineInModalOpen(false));
+  }, [popModal]);
+
+  const openOrderTracking = useCallback((orderNumber = null, trackingToken = null) => {
+    if (orderNumber && trackingToken) {
+      setActiveTracking((prev) => ({
+        ...prev,
+        orderNumber,
+        trackingToken
+      }));
+      try {
+        const existingTokens = JSON.parse(localStorage.getItem('variety_momo_tokens') || '[]');
+        if (!existingTokens.includes(trackingToken)) {
+          existingTokens.push(trackingToken);
+          localStorage.setItem('variety_momo_tokens', JSON.stringify(existingTokens));
+          setCustomerTokens(existingTokens);
+        }
+      } catch (e) {}
+    }
+    pushModal('order-tracking');
+    setIsOrderTrackingOpen(true);
+  }, [pushModal]);
+
+  const closeOrderTracking = useCallback(() => {
+    popModal('order-tracking', () => setIsOrderTrackingOpen(false));
+  }, [popModal]);
+
+  const openCustomerNotif = useCallback(() => {
+    pushModal('customer-notif');
+    setIsCustomerNotifOpen(true);
+    fetchCustomerNotifs();
+  }, [pushModal, fetchCustomerNotifs]);
+
+  const closeCustomerNotif = useCallback(() => {
+    popModal('customer-notif', () => setIsCustomerNotifOpen(false));
+  }, [popModal]);
 
   const markCustomerNotifRead = async (id, token) => {
     await markCustomerNotificationRead(id, token);
@@ -368,6 +496,29 @@ export function CartProvider({ children }) {
   const markAllCustomerNotifsRead = async () => {
     await markAllCustomerNotificationsRead(customerTokens);
     setCustomerNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+  };
+
+  const deleteCustomerNotif = async (id, token) => {
+    try {
+      const dismissed = JSON.parse(localStorage.getItem('variety_momo_dismissed_notifs') || '[]');
+      if (!dismissed.includes(id)) {
+        dismissed.push(id);
+        localStorage.setItem('variety_momo_dismissed_notifs', JSON.stringify(dismissed));
+      }
+    } catch (e) {}
+    setCustomerNotifications((prev) => prev.filter((n) => n.id !== id));
+    deleteCustomerNotification(id, token).catch(() => {});
+  };
+
+  const deleteAllCustomerNotifs = async () => {
+    try {
+      const allIds = customerNotifications.map((n) => n.id);
+      const dismissed = JSON.parse(localStorage.getItem('variety_momo_dismissed_notifs') || '[]');
+      const combined = Array.from(new Set([...dismissed, ...allIds]));
+      localStorage.setItem('variety_momo_dismissed_notifs', JSON.stringify(combined));
+    } catch (e) {}
+    setCustomerNotifications([]);
+    deleteAllCustomerNotifications(customerTokens).catch(() => {});
   };
 
   // Track an active order
@@ -394,29 +545,6 @@ export function CartProvider({ children }) {
     }
   };
 
-  const openOrderTracking = (orderNumber = null, trackingToken = null) => {
-    if (orderNumber && trackingToken) {
-      setActiveTracking((prev) => ({
-        ...prev,
-        orderNumber,
-        trackingToken
-      }));
-      try {
-        const existingTokens = JSON.parse(localStorage.getItem('variety_momo_tokens') || '[]');
-        if (!existingTokens.includes(trackingToken)) {
-          existingTokens.push(trackingToken);
-          localStorage.setItem('variety_momo_tokens', JSON.stringify(existingTokens));
-          setCustomerTokens(existingTokens);
-        }
-      } catch (e) {}
-    }
-    setIsOrderTrackingOpen(true);
-  };
-
-  const closeOrderTracking = () => {
-    setIsOrderTrackingOpen(false);
-  };
-
   return (
     <CartContext.Provider
       value={{
@@ -424,18 +552,18 @@ export function CartProvider({ children }) {
         orderType,
         setOrderType,
         isCartOpen,
-        openCart: () => setIsCartOpen(true),
-        closeCart: () => setIsCartOpen(false),
-        toggleCart: () => setIsCartOpen((p) => !p),
+        openCart,
+        closeCart,
+        toggleCart: () => (isCartOpen ? closeCart() : openCart()),
         selectedFoodItem,
-        openFoodDetail: (item) => setSelectedFoodItem(item),
-        closeFoodDetail: () => setSelectedFoodItem(null),
+        openFoodDetail,
+        closeFoodDetail,
         isSearchOpen,
-        openSearch: () => setIsSearchOpen(true),
-        closeSearch: () => setIsSearchOpen(false),
+        openSearch,
+        closeSearch,
         isDineInModalOpen,
-        openDineInModal: () => setIsDineInModalOpen(true),
-        closeDineInModal: () => setIsDineInModalOpen(false),
+        openDineInModal,
+        closeDineInModal,
         isOrderTrackingOpen,
         openOrderTracking,
         closeOrderTracking,
@@ -446,6 +574,8 @@ export function CartProvider({ children }) {
         customerUnreadCount,
         markCustomerNotifRead,
         markAllCustomerNotifsRead,
+        deleteCustomerNotif,
+        deleteAllCustomerNotifs,
         addToCart,
         updateQuantity,
         removeFromCart,

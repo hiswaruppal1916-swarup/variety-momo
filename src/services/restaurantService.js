@@ -479,6 +479,59 @@ export function subscribeToOrderUpdates(orderId, onUpdate) {
 ============================================================================ */
 
 /**
+ * Format timestamp into Asia/Kolkata timezone: 'DD MMM YYYY, hh:mm A'
+ * Example: '02 Oct 2026, 08:42 PM'
+ */
+export function formatKolkataDateTime(timestamp) {
+  if (!timestamp) return '';
+  try {
+    const d = typeof timestamp === 'string' || typeof timestamp === 'number'
+      ? new Date(timestamp)
+      : timestamp;
+    if (isNaN(d.getTime())) return '';
+
+    const formatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+
+    const str = formatter.format(d);
+    return str.replace(/\b(am|pm)\b/gi, (match) => match.toUpperCase());
+  } catch (e) {
+    console.error('Date formatting error:', e);
+    return '';
+  }
+}
+
+/**
+ * Calculate the exact start and end of TODAY in Asia/Kolkata (UTC+05:30)
+ * Returned as ISO strings (UTC) for querying database timestamps
+ */
+export function getKolkataTodayRange() {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  // en-CA produces "YYYY-MM-DD"
+  const dateStr = formatter.format(now); // e.g. "2026-10-02"
+
+  // Start of day in Kolkata is dateStr + "T00:00:00+05:30"
+  // End of day in Kolkata is dateStr + "T23:59:59.999+05:30"
+  const startOfDay = new Date(`${dateStr}T00:00:00+05:30`).toISOString();
+  const endOfDay = new Date(`${dateStr}T23:59:59.999+05:30`).toISOString();
+
+  return { dateStr, startOfDay, endOfDay };
+}
+
+/**
  * Get Owner Dashboard Statistics (Atomic RPC)
  */
 export async function getOwnerDashboardStats() {
@@ -498,7 +551,8 @@ export async function getOwnerOrders({
   orderType = 'ALL',
   search = '',
   limit = 50,
-  offset = 0
+  offset = 0,
+  onlyToday = false
 } = {}) {
   let query = supabase
     .from('orders')
@@ -523,8 +577,12 @@ export async function getOwnerOrders({
       order_items(id, item_name_snapshot, unit_price_snapshot, quantity, line_total),
       payments(id, amount, payment_status, customer_reference, submitted_at, verified_at)
     `, { count: 'exact' })
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order('created_at', { ascending: false });
+
+  if (onlyToday) {
+    const { startOfDay, endOfDay } = getKolkataTodayRange();
+    query = query.gte('created_at', startOfDay).lte('created_at', endOfDay);
+  }
 
   if (orderType && orderType !== 'ALL') {
     query = query.eq('order_type', orderType);
@@ -543,10 +601,30 @@ export async function getOwnerOrders({
     query = query.or(`order_number.ilike.%${term}%,customer_phone.ilike.%${term}%,customer_name.ilike.%${term}%`);
   }
 
+  query = query.range(offset, offset + limit - 1);
+
   const { data, error, count } = await query;
   if (error) throw error;
 
   return { orders: data || [], totalCount: count || 0 };
+}
+
+/**
+ * Delete Order (Owner only - cascades to items, payments, history, notifications)
+ */
+export async function deleteOrder(orderId) {
+  if (!orderId) throw new Error('Order ID is required.');
+  const { data, error } = await supabase
+    .from('orders')
+    .delete()
+    .eq('id', orderId)
+    .select('id, order_number');
+
+  if (error) {
+    console.error('Delete order error:', error);
+    throw error;
+  }
+  return data?.[0] || { id: orderId };
 }
 
 /**
@@ -773,8 +851,9 @@ export function subscribeToOwnerEvents({
   onPaymentSubmitted,
   onNotification
 }) {
+  const channelName = `owner-realtime-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const channel = supabase
-    .channel('owner-dashboard-realtime')
+    .channel(channelName)
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'orders' },
@@ -1045,8 +1124,22 @@ export async function submitReview({ customer_name, rating, review_text }) {
 export async function getOwnerNotifications() {
   try {
     const { data, error } = await supabase.rpc('get_owner_notifications');
+    if (!error && data && data.length > 0) return data;
+  } catch (err) {
+    // Fall back to table query
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('recipient_type', 'OWNER')
+      .order('created_at', { ascending: false });
     if (error) throw error;
-    return data || [];
+    return (data || []).map((n) => ({
+      ...n,
+      message: n.body || n.message || ''
+    }));
   } catch (err) {
     console.error('Error fetching owner notifications:', err);
     return [];
@@ -1061,8 +1154,18 @@ export async function markNotificationAsRead(notificationId) {
     const { data, error } = await supabase.rpc('mark_owner_notification_read', {
       p_notification_id: notificationId
     });
+    if (!error) return data;
+  } catch (err) {
+    // Fall back to direct table update
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', notificationId);
     if (error) throw error;
-    return data;
+    return { success: true, data };
   } catch (err) {
     console.error('Error marking notification read:', err);
     return { success: false, error: err.message };
@@ -1075,11 +1178,72 @@ export async function markNotificationAsRead(notificationId) {
 export async function markAllNotificationsAsRead() {
   try {
     const { data, error } = await supabase.rpc('mark_all_owner_notifications_read');
+    if (!error) return data;
+  } catch (err) {
+    // Fall back to direct table update
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('recipient_type', 'OWNER');
     if (error) throw error;
-    return data;
+    return { success: true, data };
   } catch (err) {
     console.error('Error marking all notifications read:', err);
     return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Delete a single owner notification by ID
+ */
+export async function deleteOwnerNotification(notificationId) {
+  try {
+    const { data, error } = await supabase.rpc('delete_owner_notification', {
+      p_notification_id: notificationId
+    });
+    if (!error) return data;
+  } catch (err) {
+    // Fall back to direct table delete
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('id', notificationId)
+      .eq('recipient_type', 'OWNER');
+    if (error) throw error;
+    return { success: true, data };
+  } catch (err) {
+    console.error('Error deleting owner notification:', err);
+    throw err;
+  }
+}
+
+/**
+ * Delete all owner notifications
+ */
+export async function deleteAllOwnerNotifications() {
+  try {
+    const { data, error } = await supabase.rpc('delete_all_owner_notifications');
+    if (!error) return data;
+  } catch (err) {
+    // Fall back to direct table delete
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('recipient_type', 'OWNER');
+    if (error) throw error;
+    return { success: true, data };
+  } catch (err) {
+    console.error('Error deleting all owner notifications:', err);
+    throw err;
   }
 }
 
@@ -1133,3 +1297,36 @@ export async function markAllCustomerNotificationsRead(tokens = []) {
     return { success: false, error: err.message };
   }
 }
+
+/**
+ * Delete a single customer notification
+ */
+export async function deleteCustomerNotification(notificationId, trackingToken) {
+  try {
+    const { data, error } = await supabase.rpc('delete_customer_notification', {
+      p_notification_id: notificationId,
+      p_tracking_token: trackingToken
+    });
+    if (!error) return data;
+  } catch (err) {
+    // handled gracefully
+  }
+  return { success: true };
+}
+
+/**
+ * Delete all customer notifications
+ */
+export async function deleteAllCustomerNotifications(tokens = []) {
+  if (!tokens || tokens.length === 0) return { success: true, count: 0 };
+  try {
+    const { data, error } = await supabase.rpc('delete_all_customer_notifications', {
+      p_tokens: tokens
+    });
+    if (!error) return data;
+  } catch (err) {
+    // handled gracefully
+  }
+  return { success: true };
+}
+

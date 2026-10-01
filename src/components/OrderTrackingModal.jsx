@@ -8,6 +8,7 @@ import {
   AlertCircle,
   QrCode,
   ArrowRight,
+  ArrowLeft,
   UtensilsCrossed,
   Bike,
   ShieldCheck,
@@ -15,13 +16,15 @@ import {
   Bell,
   BellRing,
   AlertTriangle,
-  Receipt
+  Receipt,
+  Calendar
 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import {
   getCustomerOrder,
   submitOrderPayment,
-  subscribeToOrderUpdates
+  subscribeToOrderUpdates,
+  formatKolkataDateTime
 } from '../services/restaurantService';
 import {
   checkFcmSupport,
@@ -295,11 +298,20 @@ export default function OrderTrackingModal() {
       <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden z-10 max-h-[92vh] flex flex-col animate-in zoom-in-95 duration-200">
         {/* Header with Variety Momo Branding */}
         <div className="p-4 sm:p-5 border-b border-stone-800 flex items-center justify-between bg-stone-900 text-white shrink-0">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={closeOrderTracking}
+              className="p-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white transition-colors mr-0.5"
+              title="Back"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+
             <img
               src="/variety-momo-logo.jpg"
               alt="Variety Momo"
-              className="w-11 h-11 rounded-2xl object-cover border border-white/20 shadow-md shrink-0"
+              className="w-10 h-10 rounded-2xl object-cover border border-white/20 shadow-md shrink-0"
             />
             <div>
               <div className="flex items-center gap-2">
@@ -312,7 +324,7 @@ export default function OrderTrackingModal() {
               </div>
               <div className="flex items-center gap-2 text-xs text-stone-300 mt-0.5">
                 <span className="font-mono font-bold text-amber-300">
-                  {order ? order.order_number : 'Locating...'}
+                  {order ? `Order #${order.order_number}` : 'Locating...'}
                 </span>
                 {order && (
                   <>
@@ -323,6 +335,12 @@ export default function OrderTrackingModal() {
                   </>
                 )}
               </div>
+              {order && order.created_at && (
+                <div className="flex items-center gap-1.5 text-[11px] text-amber-300/90 font-semibold mt-1">
+                  <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>{formatKolkataDateTime(order.created_at)}</span>
+                </div>
+              )}
             </div>
           </div>
 

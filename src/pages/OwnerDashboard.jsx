@@ -45,7 +45,46 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [ownerProfile, setOwnerProfile] = useState(null);
   const [activeTab, setActiveTab] = useState(initialOrderId ? 'orders' : 'overview');
+  const [selectedOrderId, setSelectedOrderId] = useState(initialOrderId);
+  const [ordersScope, setOrdersScope] = useState('TODAY');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const handleOpenMobileMenu = () => {
+    window.history.pushState({ varietyOwnerModal: 'drawer' }, '');
+    setIsMobileMenuOpen(true);
+  };
+
+  const handleSetMobileOpen = (openState) => {
+    if (!openState) {
+      if (window.history.state?.varietyOwnerModal === 'drawer') {
+        window.history.back();
+      } else {
+        setIsMobileMenuOpen(false);
+      }
+    } else {
+      handleOpenMobileMenu();
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (isMobileMenuOpen) {
+        setIsMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isMobileMenuOpen]);
+
+  const handleSelectTab = (tab, orderId = null, scope = 'TODAY') => {
+    setActiveTab(tab);
+    if (orderId) {
+      setSelectedOrderId(orderId);
+    }
+    if (tab === 'orders') {
+      setOrdersScope(scope);
+    }
+  };
 
   // Live Stats & Realtime
   const [stats, setStats] = useState(null);
@@ -244,7 +283,7 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
     if (onNavigate) {
       onNavigate('home');
     } else {
-      window.location.pathname = '';
+      window.location.pathname = '/';
     }
   };
 
@@ -262,14 +301,14 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
       {/* Sidebar Navigation */}
       <OwnerSidebar
         activeTab={activeTab}
-        onSelectTab={setActiveTab}
+        onSelectTab={handleSelectTab}
         onLogout={handleLogout}
         onNavigateHome={handleNavigateHome}
         stats={stats}
         unreadCount={unreadNotifications}
         pendingVerifications={pendingVerifications}
         isMobileOpen={isMobileMenuOpen}
-        setIsMobileOpen={setIsMobileMenuOpen}
+        setIsMobileOpen={handleSetMobileOpen}
       />
 
       {/* Main Content Area */}
@@ -278,24 +317,33 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
         <header className="sticky top-0 z-30 bg-stone-950/90 backdrop-blur-md border-b border-stone-800 px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setIsMobileMenuOpen(true)}
-              className="lg:hidden p-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-300 hover:text-white"
+              onClick={handleOpenMobileMenu}
+              className="p-2 rounded-xl bg-stone-900 border border-stone-800 text-stone-300 hover:text-white hover:bg-stone-800 transition-colors"
+              title="Open Navigation Menu"
+              aria-label="Open Navigation Menu"
             >
-              <Menu className="w-5 h-5" />
+              <Menu className="w-5 h-5 text-brand-400" />
             </button>
 
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-outfit font-extrabold text-base sm:text-lg text-white tracking-tight">
-                  Variety Momo
-                </span>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-brand-500/15 text-brand-400 border border-brand-500/30">
-                  <ShieldCheck className="w-3 h-3 text-brand-400" />
-                  <span>OWNER</span>
-                </span>
-              </div>
-              <div className="text-[10px] text-stone-400 hidden sm:block">
-                {ownerProfile?.email}
+            <div className="flex items-center gap-2.5">
+              <img
+                src="/variety-momo-logo.jpg"
+                alt="Variety Momo"
+                className="w-8 h-8 rounded-xl object-cover ring-1 ring-brand-500/40"
+              />
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-outfit font-extrabold text-base sm:text-lg text-white tracking-tight">
+                    Variety Momo
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-brand-500/15 text-brand-400 border border-brand-500/30">
+                    <ShieldCheck className="w-3 h-3 text-brand-400" />
+                    <span>OWNER</span>
+                  </span>
+                </div>
+                <div className="text-[10px] text-stone-400 hidden sm:block">
+                  {ownerProfile?.email}
+                </div>
               </div>
             </div>
           </div>
@@ -303,7 +351,7 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
           <div className="flex items-center gap-2">
             {/* Notification Bell (Requirement 32) */}
             <button
-              onClick={() => setActiveTab('notifications')}
+              onClick={() => handleSelectTab('notifications')}
               className="relative p-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-200 border border-stone-800 transition-colors"
               title="Notifications"
             >
@@ -349,12 +397,16 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
               stats={stats}
               loading={statsLoading}
               onRefresh={loadDashboardData}
-              onSelectTab={setActiveTab}
+              onSelectTab={handleSelectTab}
             />
           )}
 
           {activeTab === 'orders' && (
-            <OrdersTab onSelectTab={setActiveTab} initialOrderId={initialOrderId} />
+            <OrdersTab
+              onSelectTab={handleSelectTab}
+              initialOrderId={selectedOrderId}
+              initialScope={ordersScope}
+            />
           )}
 
           {activeTab === 'payments' && (
@@ -395,7 +447,7 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
 
           {activeTab === 'notifications' && (
             <NotificationsTab
-              onSelectTab={setActiveTab}
+              onSelectTab={handleSelectTab}
               onNotificationsUpdated={loadDashboardData}
             />
           )}

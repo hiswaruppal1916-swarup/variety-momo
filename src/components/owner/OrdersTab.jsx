@@ -23,20 +23,28 @@ import {
   CreditCard,
   RefreshCw,
   ChefHat,
-  Bike
+  Bike,
+  Trash2,
+  ArrowLeft
 } from 'lucide-react';
 import {
   getOwnerOrders,
   getOwnerOrderDetails,
   updateOrderStatus,
   cancelOrder,
+  deleteOrder,
   getOwnerDashboardStats,
   verifyOrderPayment,
   rejectOrderPayment,
-  subscribeToOwnerEvents
+  subscribeToOwnerEvents,
+  formatKolkataDateTime,
+  getKolkataTodayRange
 } from '../../services/restaurantService';
 
-export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
+export default function OrdersTab({ onSelectTab, initialOrderId = null, initialScope = 'TODAY' }) {
+  // Primary Scope: "TODAY" vs "ALL" (Requirement 1 & 2)
+  const [scopeFilter, setScopeFilter] = useState(initialScope);
+
   // Orders State
   const [orders, setOrders] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -59,6 +67,11 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState(null);
 
+  // Deletion Modal (Requirement 4)
+  const [deletingOrder, setDeletingOrder] = useState(null);
+  const [deletingLoading, setDeletingLoading] = useState(false);
+  const [orderToast, setOrderToast] = useState(null);
+
   // Rejection / Cancellation Modal
   const [rejectingOrder, setRejectingOrder] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -80,7 +93,7 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
     }
   }, []);
 
-  // 2. Load Orders based on filters
+  // 2. Load Orders based on filters & scope
   const loadOrders = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -103,7 +116,8 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
         orderType: typeParam,
         search: searchQuery,
         limit: pageSize,
-        offset: page * pageSize
+        offset: page * pageSize,
+        onlyToday: scopeFilter === 'TODAY'
       });
 
       setOrders(res.orders || []);
@@ -114,13 +128,38 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
     } finally {
       setLoading(false);
     }
-  }, [activeFilter, searchQuery, page]);
+  }, [activeFilter, searchQuery, page, scopeFilter]);
 
   // Initial load
   useEffect(() => {
     loadStats();
     loadOrders();
   }, [loadStats, loadOrders]);
+
+  // Handle Order Deletion (Requirement 4)
+  const handleConfirmDeleteOrder = async () => {
+    if (!deletingOrder) return;
+    setDeletingLoading(true);
+    const orderNum = deletingOrder.order_number;
+    try {
+      await deleteOrder(deletingOrder.id);
+      setOrders((prev) => prev.filter((o) => o.id !== deletingOrder.id));
+      setTotalCount((prev) => Math.max(0, prev - 1));
+      if (selectedOrderId === deletingOrder.id) {
+        setSelectedOrderId(null);
+        setOrderDetails(null);
+      }
+      setDeletingOrder(null);
+      setOrderToast(`Order #${orderNum} deleted successfully.`);
+      setTimeout(() => setOrderToast(null), 4000);
+      loadStats();
+    } catch (err) {
+      console.error('Delete order error:', err);
+      alert(err.message || 'Failed to delete order.');
+    } finally {
+      setDeletingLoading(false);
+    }
+  };
 
   // Handle initialOrderId prop if passed (e.g. from notification click)
   useEffect(() => {
@@ -151,9 +190,10 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
     };
   }, [loadOrders, loadStats]);
 
-  // Open Details Modal
+  // Open Details Modal with browser history push
   const handleOpenDetails = async (orderId) => {
     setSelectedOrderId(orderId);
+    window.history.pushState({ varietyOwnerModal: 'order-details' }, '');
     setDetailsLoading(true);
     try {
       const details = await getOwnerOrderDetails(orderId);
@@ -165,6 +205,26 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
       setDetailsLoading(false);
     }
   };
+
+  const handleCloseDetails = () => {
+    if (window.history.state?.varietyOwnerModal === 'order-details') {
+      window.history.back();
+    } else {
+      setSelectedOrderId(null);
+      setOrderDetails(null);
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (selectedOrderId) {
+        setSelectedOrderId(null);
+        setOrderDetails(null);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [selectedOrderId]);
 
   // 4. One-Tap Order Status Transitions directly from cards
   const handleDirectTransition = async (orderId, newStatus, note = '') => {
@@ -310,6 +370,67 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
 
   return (
     <div className="space-y-6">
+      {/* Toast Alert Feedback */}
+      {orderToast && (
+        <div className="p-4 rounded-2xl bg-emerald-600 text-white font-bold text-xs shadow-lg shadow-emerald-950/40 flex items-center justify-between gap-3 animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{orderToast}</span>
+          </div>
+          <button
+            onClick={() => setOrderToast(null)}
+            className="text-emerald-100 hover:text-white px-2 py-0.5 rounded bg-black/20 text-xs"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* ========================================================
+          PRIMARY SCOPE SWITCH: TODAY'S ORDERS vs ALL ORDERS (Req 1 & 2)
+         ======================================================== */}
+      <div className="bg-stone-900/90 p-3 sm:p-4 rounded-3xl border border-stone-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setScopeFilter('TODAY');
+              setActiveFilter('ALL');
+              setPage(0);
+            }}
+            className={`flex-1 sm:flex-none px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 transition-all ${
+              scopeFilter === 'TODAY'
+                ? 'bg-brand-600 text-white shadow-lg shadow-brand-950/50 ring-2 ring-brand-400'
+                : 'bg-stone-800/80 text-stone-300 hover:bg-stone-800 hover:text-white border border-stone-700/60'
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+            <span>Today's Orders ({stats?.today_orders ?? 0})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setScopeFilter('ALL');
+              setActiveFilter('ALL');
+              setPage(0);
+            }}
+            className={`flex-1 sm:flex-none px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 transition-all ${
+              scopeFilter === 'ALL'
+                ? 'bg-brand-600 text-white shadow-lg shadow-brand-950/50 ring-2 ring-brand-400'
+                : 'bg-stone-800/80 text-stone-300 hover:bg-stone-800 hover:text-white border border-stone-700/60'
+            }`}
+          >
+            <ShoppingBag className="w-4 h-4" />
+            <span>All Orders ({stats?.all_orders ?? totalCount ?? 0})</span>
+          </button>
+        </div>
+
+        <div className="text-right text-[11px] text-stone-400 hidden sm:block">
+          Timezone: <span className="font-semibold text-stone-200">Asia/Kolkata (IST)</span>
+        </div>
+      </div>
+
       {/* ========================================================
           1. TOP SUMMARY METRIC CARDS (Requirement 20)
           TODAY'S ORDERS, HOME DELIVERY, DINE-IN, PENDING,
@@ -644,11 +765,9 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
                           </span>
                         )}
                       </div>
-                      <div className="text-[11px] text-stone-400 mt-1 flex items-center gap-1.5">
-                        <Clock className="w-3 h-3 text-stone-500" />
-                        <span>{formatOrderTime(order.created_at)}</span>
-                        <span>•</span>
-                        <span>{new Date(order.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <div className="text-[11px] text-brand-300 font-semibold mt-1 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-brand-400 shrink-0" />
+                        <span>{formatKolkataDateTime(order.created_at)}</span>
                       </div>
                     </div>
 
@@ -889,11 +1008,21 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
                     </button>
                   )}
 
-                  {/* Secondary Details Trigger */}
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-[10px] text-stone-500">
-                      ID: {order.id.slice(0, 8)}...
-                    </span>
+                  {/* Secondary Details Trigger & Delete Order Button (Req 4) */}
+                  <div className="flex items-center justify-between pt-2 border-t border-stone-800/60 mt-1">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeletingOrder(order);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 text-red-400 hover:text-red-200 text-[11px] font-bold transition-colors active:scale-95"
+                      title="Delete Order (Owner Only)"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete</span>
+                    </button>
+
                     <button
                       onClick={() => handleOpenDetails(order.id)}
                       className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-400 hover:text-white transition-colors"
@@ -1094,12 +1223,22 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
               </div>
             ) : (
               <div className="space-y-5">
-                {/* Header */}
+                {/* Header with Back, Date/Time, and Delete Button */}
                 <div className="flex items-start justify-between border-b border-stone-800 pb-4">
                   <div>
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCloseDetails}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-semibold mr-1 transition-colors"
+                        title="Back to Orders"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span>Back</span>
+                      </button>
+
                       <h2 className="font-outfit font-black text-xl text-white">
-                        {orderDetails.order_number}
+                        Order #{orderDetails.order_number}
                       </h2>
                       {orderDetails.order_type === 'DINE_IN' ? (
                         <span className="px-2.5 py-0.5 rounded-lg bg-blue-500/15 text-blue-400 text-xs font-bold border border-blue-500/25">
@@ -1111,19 +1250,31 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-stone-400 mt-1">
-                      Placed on {new Date(orderDetails.created_at).toLocaleString('en-IN', { dateStyle: 'long', timeStyle: 'short' })}
-                    </p>
+                    <div className="text-xs text-brand-300 mt-1.5 flex items-center gap-1.5 font-medium">
+                      <Calendar className="w-3.5 h-3.5 text-brand-400 shrink-0" />
+                      <span>{formatKolkataDateTime(orderDetails.created_at)}</span>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      setSelectedOrderId(null);
-                      setOrderDetails(null);
-                    }}
-                    className="p-1.5 rounded-xl bg-stone-800 text-stone-400 hover:text-white"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDeletingOrder(orderDetails)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-950/60 border border-red-800/80 text-red-400 hover:text-white hover:bg-red-900 text-xs font-bold transition-all active:scale-95 shadow-xs"
+                      title="Delete Order (Owner Only)"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Order</span>
+                    </button>
+
+                    <button
+                      onClick={handleCloseDetails}
+                      className="p-1.5 rounded-xl bg-stone-800 text-stone-400 hover:text-white transition-colors"
+                      aria-label="Close"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Customer Details */}
@@ -1222,6 +1373,67 @@ export default function OrdersTab({ onSelectTab, initialOrderId = null }) {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          7. DELETE ORDER CONFIRMATION MODAL (Requirement 4)
+         ======================================================== */}
+      {deletingOrder && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 max-w-md w-full text-white space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center border border-red-500/30">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-outfit font-black text-lg text-white">
+                    Delete Order #{deletingOrder.order_number}?
+                  </h3>
+                  <span className="text-[11px] text-stone-400">Owner Action Required</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeletingOrder(null)}
+                className="text-stone-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-stone-300 leading-relaxed">
+              Are you sure you want to delete <strong className="text-white font-mono">Order #{deletingOrder.order_number}</strong>?
+              <br />
+              This action cannot be undone. All related records including order items, payments, status history, and customer notifications will be permanently deleted.
+            </p>
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingOrder(null)}
+                className="flex-1 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-bold transition-colors"
+              >
+                CANCEL
+              </button>
+              <button
+                type="button"
+                disabled={deletingLoading}
+                onClick={handleConfirmDeleteOrder}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 active:scale-95 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-md shadow-red-950/50 disabled:opacity-50"
+              >
+                {deletingLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>DELETE</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

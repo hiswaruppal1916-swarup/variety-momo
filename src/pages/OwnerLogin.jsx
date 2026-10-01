@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Lock, Mail, ArrowLeft, AlertCircle, Loader2 } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, ArrowLeft, AlertCircle, Loader2, KeyRound } from 'lucide-react';
 import { loginOwner, OWNER_EMAIL } from '../services/authService';
 
 export default function OwnerLogin({ onNavigate }) {
@@ -38,7 +38,13 @@ export default function OwnerLogin({ onNavigate }) {
             className="w-16 h-16 rounded-full object-cover shadow-lg ring-2 ring-brand-500/50"
           />
         </div>
-        <h2 className="mt-4 text-center font-outfit text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+        <div className="mt-3 flex justify-center">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-xs">
+            <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+            <span>Owner Portal</span>
+          </span>
+        </div>
+        <h2 className="mt-2 text-center font-outfit text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
           Owner Portal Login
         </h2>
         <p className="mt-1 text-center text-xs sm:text-sm text-stone-400">
