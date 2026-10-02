@@ -163,7 +163,53 @@ Deno.serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
+    // Construct unique event key for idempotency
+    const eventKey =
+      data?.event_key ||
+      (data?.notification_id
+        ? `notif_${data.notification_id}`
+        : data?.order_id
+        ? `${data.order_id}:${data?.recipient_type || 'ALL'}:${title}`
+        : null);
+
+    const notifTag = data?.order_number
+      ? `order-${data.order_number}`
+      : data?.notification_id
+      ? `notif-${data.notification_id}`
+      : (eventKey || 'variety-momo-alert');
+
     for (const fcmToken of targetTokens) {
+      // 1. Check idempotency: if this event was already delivered to this token, skip
+      if (supabaseUrl && supabaseServiceKey && eventKey) {
+        try {
+          const checkRes = await fetch(
+            `${supabaseUrl}/rest/v1/notification_deliveries?event_key=eq.${encodeURIComponent(eventKey)}&fcm_token=eq.${encodeURIComponent(fcmToken)}&select=id`,
+            {
+              headers: {
+                "apikey": supabaseServiceKey,
+                "Authorization": `Bearer ${supabaseServiceKey}`
+              }
+            }
+          );
+          if (checkRes.ok) {
+            const existing = await checkRes.json();
+            if (Array.isArray(existing) && existing.length > 0) {
+              console.log(`[FCM] Skipped duplicate send for ${eventKey} to token ${fcmToken.substring(0, 10)}...`);
+              results.push({
+                token: fcmToken.substring(0, 12) + "...",
+                status: 200,
+                success: true,
+                skipped: true,
+                reason: "Already delivered (idempotent)"
+              });
+              continue;
+            }
+          }
+        } catch (checkErr) {
+          console.warn("[FCM] Idempotency check warning:", checkErr);
+        }
+      }
+
       const payload = {
         message: {
           token: fcmToken,
@@ -178,10 +224,16 @@ Deno.serve(async (req: Request) => {
             notification: {
               icon: "/variety-momo-logo.jpg",
               badge: "/favicon-96x96.png",
-              tag: (data?.order_number ? `order-${data.order_number}` : `momo-${Date.now()}`),
-              renotify: true,
+              tag: notifTag,
+              renotify: false,
               requireInteraction: true,
-              vibrate: [200, 100, 200]
+              vibrate: [200, 100, 200],
+              data: {
+                click_action: url || data?.click_action || "/",
+                order_id: data?.order_id || "",
+                order_number: data?.order_number || "",
+                notification_id: data?.notification_id || ""
+              }
             },
             fcm_options: {
               link: url || data?.click_action || "/"
@@ -193,7 +245,8 @@ Deno.serve(async (req: Request) => {
               channel_id: "variety_momo_orders",
               sound: "default",
               notification_priority: "PRIORITY_MAX",
-              default_vibrate_timings: true
+              default_vibrate_timings: true,
+              tag: notifTag
             }
           },
           data: {
@@ -202,6 +255,8 @@ Deno.serve(async (req: Request) => {
             click_action: url || data?.click_action || "/",
             order_id: data?.order_id || "",
             order_number: data?.order_number || "",
+            notification_id: data?.notification_id || "",
+            event_key: eventKey || "",
             timestamp: Date.now().toString()
           }
         }
@@ -220,8 +275,33 @@ Deno.serve(async (req: Request) => {
         const fcmResult = await fcmRes.json();
         const isSuccess = fcmRes.ok;
 
-        // Auto-deactivate invalid/expired FCM tokens
-        if (!isSuccess && (fcmRes.status === 404 || fcmResult?.error?.status === "NOT_FOUND" || fcmResult?.error?.message?.includes("UNREGISTERED"))) {
+        if (isSuccess) {
+          // Record successful delivery for idempotency
+          if (supabaseUrl && supabaseServiceKey && eventKey) {
+            fetch(`${supabaseUrl}/rest/v1/notification_deliveries`, {
+              method: "POST",
+              headers: {
+                "apikey": supabaseServiceKey,
+                "Authorization": `Bearer ${supabaseServiceKey}`,
+                "Content-Type": "application/json",
+                "Prefer": "resolution=ignore-duplicates"
+              },
+              body: JSON.stringify({
+                event_key: eventKey,
+                fcm_token: fcmToken,
+                notification_id: data?.notification_id || null,
+                recipient_type: data?.recipient_type || "UNKNOWN",
+                status: "SENT"
+              })
+            }).catch(() => {});
+          }
+        } else if (
+          fcmRes.status === 404 ||
+          fcmResult?.error?.status === "NOT_FOUND" ||
+          fcmResult?.error?.message?.includes("UNREGISTERED") ||
+          fcmResult?.error?.details?.[0]?.errorCode === "UNREGISTERED"
+        ) {
+          // Auto-deactivate invalid/expired FCM tokens
           if (supabaseUrl && supabaseServiceKey) {
             fetch(`${supabaseUrl}/rest/v1/push_subscriptions?fcm_token=eq.${encodeURIComponent(fcmToken)}`, {
               method: "PATCH",
@@ -253,7 +333,8 @@ Deno.serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         success: true,
-        sentCount: results.filter(r => r.success).length,
+        sentCount: results.filter(r => r.success && !r.skipped).length,
+        skippedCount: results.filter(r => r.skipped).length,
         total: targetTokens.length,
         results
       }),

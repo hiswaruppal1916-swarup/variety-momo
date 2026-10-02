@@ -359,7 +359,8 @@ export async function createCustomerOrder({
   tableToken = null,
   deliveryAddress = null,
   paymentReference = null,
-  specialInstructions = null
+  specialInstructions = null,
+  fcmToken = null
 }) {
   const { data, error } = await supabase.rpc('create_customer_order', {
     p_order_type: orderType,
@@ -369,7 +370,8 @@ export async function createCustomerOrder({
     p_table_token: tableToken,
     p_delivery_address: deliveryAddress,
     p_payment_reference: paymentReference,
-    p_special_instructions: specialInstructions
+    p_special_instructions: specialInstructions,
+    p_fcm_token: fcmToken
   });
 
   if (error) {
@@ -377,17 +379,9 @@ export async function createCustomerOrder({
     throw new Error(error.message || 'Failed to place order.');
   }
 
-  // Trigger FCM Push notification to Owner in background
-  if (data && data.order_number) {
-    triggerPushNotification({
-      title: `🔔 New ${orderType === 'DINE_IN' ? 'Dine-In' : 'Delivery'} Order #${data.order_number}`,
-      body: `${customerName || 'Customer'} placed an order of ₹${data.grand_total || '0'}. Click to view dashboard.`,
-      recipientType: 'OWNER',
-      orderId: data.order_id,
-      orderNumber: data.order_number,
-      url: '/owner-dashboard'
-    }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
-  }
+  // Note: Push notifications for both Owner and Customer are handled
+  // server-side by handle_notification_fcm_push trigger on public.notifications
+  // to ensure single delivery and prevent client-side duplicates.
 
   return data;
 }
@@ -414,16 +408,6 @@ export async function submitOrderPayment({
     console.error('submit_order_payment error:', error);
     throw new Error(error.message || 'Failed to submit payment reference.');
   }
-
-  // Trigger FCM Push notification to Owner in background
-  triggerPushNotification({
-    title: `💳 Payment Submitted #${orderNumber}`,
-    body: `Ref "${paymentReference}" submitted for ₹${paymentAmount || ''}. Verification needed.`,
-    recipientType: 'OWNER',
-    orderId: data?.order_id || null,
-    orderNumber: orderNumber,
-    url: '/owner-dashboard'
-  }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
 
   return data;
 }
@@ -659,22 +643,6 @@ export async function verifyOrderPayment({ paymentId, orderId, note = null }) {
   });
 
   if (error) throw error;
-
-  // Trigger push notification to Customer with direct tracking URL
-  const verifyTrackingUrl =
-    data?.order_number && data?.tracking_token
-      ? `/?order_number=${encodeURIComponent(data.order_number)}&token=${encodeURIComponent(data.tracking_token)}`
-      : '/';
-
-  triggerPushNotification({
-    title: '✅ Advance Payment Verified',
-    body: 'Your advance payment has been verified by Variety Momo. Momos are being prepared!',
-    recipientType: 'CUSTOMER',
-    orderId: orderId,
-    orderNumber: data?.order_number || null,
-    url: verifyTrackingUrl
-  }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
-
   return data;
 }
 
@@ -689,22 +657,6 @@ export async function rejectOrderPayment({ paymentId, orderId, reason }) {
   });
 
   if (error) throw error;
-
-  // Trigger push notification to Customer
-  const rejectTrackingUrl =
-    data?.order_number && data?.tracking_token
-      ? `/?order_number=${encodeURIComponent(data.order_number)}&token=${encodeURIComponent(data.tracking_token)}`
-      : '/';
-
-  triggerPushNotification({
-    title: '❌ Payment Issue',
-    body: `Your payment reference could not be verified: ${reason}. Please update your payment reference.`,
-    recipientType: 'CUSTOMER',
-    orderId: orderId,
-    orderNumber: data?.order_number || null,
-    url: rejectTrackingUrl
-  }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
-
   return data;
 }
 
@@ -719,40 +671,6 @@ export async function updateOrderStatus({ orderId, newStatus, note = null }) {
   });
 
   if (error) throw error;
-
-  const orderNum = data?.order_number || '';
-  const statusMessages = {
-    CONFIRMED: 'Order confirmed! Kitchen is prepping ingredients.',
-    PREPARING: 'Your momos are being freshly steamed and prepared! 🥟🔥',
-    READY: orderNum ? `Your Variety Momo order #${orderNum} is ready.` : 'Your Variety Momo order is ready.',
-    OUT_FOR_DELIVERY: 'Our delivery rider is on the way! 🛵💨',
-    SERVED: 'Your order has been served hot at your table! Enjoy! 🥟',
-    COMPLETED: 'Thank you for ordering with Variety Momo! Come again soon! ❤️'
-  };
-
-  const statusTitles = {
-    PREPARING: '🔥 Momos Steaming',
-    READY: orderNum ? `🥟 Order Ready #${orderNum}` : '🥟 Order Ready',
-    OUT_FOR_DELIVERY: '🛵 Out for Delivery',
-    SERVED: '🍽️ Order Served',
-    COMPLETED: '❤️ Order Completed'
-  };
-
-  const statusTrackingUrl =
-    data?.order_number && data?.tracking_token
-      ? `/?order_number=${encodeURIComponent(data.order_number)}&token=${encodeURIComponent(data.tracking_token)}`
-      : '/';
-
-  // Trigger push notification to Customer
-  triggerPushNotification({
-    title: statusTitles[newStatus] || `📦 Order Update: ${newStatus.replace(/_/g, ' ')}`,
-    body: statusMessages[newStatus] || `Your order status changed to ${newStatus}.`,
-    recipientType: 'CUSTOMER',
-    orderId: orderId,
-    orderNumber: orderNum,
-    url: statusTrackingUrl
-  }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
-
   return data;
 }
 
@@ -766,22 +684,6 @@ export async function cancelOrder({ orderId, reason = null }) {
   });
 
   if (error) throw error;
-
-  const cancelTrackingUrl =
-    data?.order_number && data?.tracking_token
-      ? `/?order_number=${encodeURIComponent(data.order_number)}&token=${encodeURIComponent(data.tracking_token)}`
-      : '/';
-
-  // Trigger push notification to Customer
-  triggerPushNotification({
-    title: '⚠️ Order Cancelled',
-    body: `Your order was cancelled${reason ? ': ' + reason : '.'}`,
-    recipientType: 'CUSTOMER',
-    orderId: orderId,
-    orderNumber: data?.order_number || null,
-    url: cancelTrackingUrl
-  }).catch((err) => console.warn('[FCM] Push trigger failed:', err));
-
   return data;
 }
 

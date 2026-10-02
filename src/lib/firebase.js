@@ -169,6 +169,31 @@ export async function registerPushSubscriptionInDatabase({
   }
 }
 
+// Register all customer active orders with FCM token (Multi-Order support)
+export async function registerCustomerOrdersPushInDatabase({
+  trackingTokens = [],
+  fcmToken,
+  platform = 'WEB'
+}) {
+  if (!fcmToken || !trackingTokens || trackingTokens.length === 0) {
+    return { success: false, error: 'Missing token or tracking tokens' };
+  }
+
+  try {
+    const { data, error } = await supabase.rpc('register_customer_orders_push', {
+      p_tracking_tokens: trackingTokens,
+      p_fcm_token: fcmToken,
+      p_device_id: navigator.userAgent.substring(0, 80),
+      p_platform: platform
+    });
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    console.error('[FCM] Failed to register customer orders push:', err);
+    return { success: false, error: err.message };
+  }
+}
+
 // Unregister / Deactivate subscription
 export async function unregisterPushSubscription(fcmToken) {
   if (!fcmToken) return;
@@ -232,6 +257,8 @@ export async function triggerPushNotification({
       import.meta.env.VITE_SUPABASE_ANON_KEY ||
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvc2Nlb2dxaHdramNrc215cmpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxMzU0MjAsImV4cCI6MjEwNDcxMTQyMH0.20vQCjfZjeHtzFacGEkaY3_F8IudfPADtzBr1fVsji8';
 
+    const eventKey = orderId ? `${orderId}:${recipientType}:${eventType || title}` : null;
+
     const res = await fetch(edgeFunctionUrl, {
       method: 'POST',
       headers: {
@@ -247,7 +274,9 @@ export async function triggerPushNotification({
         data: {
           order_id: orderId || '',
           order_number: orderNumber || '',
-          click_action: url
+          click_action: url,
+          recipient_type: recipientType,
+          event_key: eventKey || ''
         }
       })
     });

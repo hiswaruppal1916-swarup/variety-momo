@@ -19,11 +19,19 @@ import {
   CheckCircle2,
   Navigation,
   ChevronRight,
-  MessageSquare
+  MessageSquare,
+  BellRing,
+  Bell
 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { restaurantInfo } from '../data/restaurantInfo';
 import { createCustomerOrder } from '../services/restaurantService';
+import {
+  getFcmToken,
+  requestNotificationPermission,
+  registerPushSubscriptionInDatabase,
+  registerCustomerOrdersPushInDatabase
+} from '../lib/firebase';
 
 export default function CartDrawer() {
   const {
@@ -76,6 +84,35 @@ export default function CartDrawer() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [lastCreatedOrder, setLastCreatedOrder] = useState(null);
+  const [pushStatus, setPushStatus] = useState('idle'); // 'idle' | 'requesting' | 'enabled' | 'denied'
+
+  const handleEnableCustomerPush = async () => {
+    if (!lastCreatedOrder?.order_number || !lastCreatedOrder?.tracking_token) return;
+    setPushStatus('requesting');
+    try {
+      const permission = await requestNotificationPermission();
+      if (permission !== 'granted') {
+        setPushStatus('denied');
+        return;
+      }
+      const token = await getFcmToken();
+      if (token) {
+        await registerPushSubscriptionInDatabase({
+          userType: 'CUSTOMER',
+          orderNumber: lastCreatedOrder.order_number,
+          trackingToken: lastCreatedOrder.tracking_token,
+          fcmToken: token
+        });
+        localStorage.setItem(`fcm_sub_${lastCreatedOrder.order_number}`, 'true');
+        setPushStatus('enabled');
+      } else {
+        setPushStatus('denied');
+      }
+    } catch (err) {
+      console.error('[FCM] Customer push registration error:', err);
+      setPushStatus('idle');
+    }
+  };
 
   // Set default selected zone when zones load
   useEffect(() => {
@@ -173,6 +210,16 @@ export default function CartDrawer() {
       return;
     }
 
+    // Check if notification permission is already granted, and obtain FCM token
+    let activeFcmToken = null;
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        activeFcmToken = await getFcmToken();
+      } catch (e) {
+        console.warn('[FCM] Token lookup before order placement:', e);
+      }
+    }
+
     // DINE-IN Specific Validations
     if (orderType === 'dinein') {
       if (!tableContext?.qr_token) {
@@ -188,13 +235,22 @@ export default function CartDrawer() {
           customerPhone: cleanPhone,
           items: orderItemsPayload,
           tableToken: tableContext.qr_token,
-          specialInstructions: specialInstructions.trim() || null
+          specialInstructions: specialInstructions.trim() || null,
+          fcmToken: activeFcmToken
         });
 
         if (result && result.success) {
           setLastCreatedOrder(result);
           saveActiveOrder(result);
           clearCart();
+          if (activeFcmToken) {
+            localStorage.setItem(`fcm_sub_${result.order_number}`, 'true');
+            setPushStatus('enabled');
+          } else if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            setPushStatus('enabled');
+          } else {
+            setPushStatus('idle');
+          }
           setCheckoutStep('success');
         }
       } catch (err) {
@@ -253,13 +309,22 @@ export default function CartDrawer() {
           items: orderItemsPayload,
           deliveryAddress: deliveryAddressPayload,
           paymentReference: paymentReference.trim() || null,
-          specialInstructions: specialInstructions.trim() || null
+          specialInstructions: specialInstructions.trim() || null,
+          fcmToken: activeFcmToken
         });
 
         if (result && result.success) {
           setLastCreatedOrder(result);
           saveActiveOrder(result);
           clearCart();
+          if (activeFcmToken) {
+            localStorage.setItem(`fcm_sub_${result.order_number}`, 'true');
+            setPushStatus('enabled');
+          } else if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            setPushStatus('enabled');
+          } else {
+            setPushStatus('idle');
+          }
           setCheckoutStep('success');
         }
       } catch (err) {
@@ -473,6 +538,38 @@ export default function CartDrawer() {
                 </div>
               )}
             </div>
+
+            {/* Phone Alerts Status / Enable Card */}
+            {pushStatus === 'enabled' ? (
+              <div className="w-full p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs flex items-center justify-between text-emerald-950 animate-in fade-in duration-200">
+                <div className="flex items-center gap-2">
+                  <BellRing className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-semibold">Phone alerts active for this order</span>
+                </div>
+                <span className="text-[10px] font-bold bg-emerald-200/70 text-emerald-800 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  Active
+                </span>
+              </div>
+            ) : pushStatus !== 'denied' && (
+              <div className="w-full p-3.5 bg-amber-50/90 rounded-2xl border border-amber-200 text-xs flex items-center justify-between gap-3 text-left animate-in fade-in duration-200">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Bell className="w-4 h-4 text-amber-600 shrink-0" />
+                  <div>
+                    <div className="font-bold text-amber-950 text-xs">Get Live Phone Alerts</div>
+                    <div className="text-[11px] text-amber-800 leading-tight">Beep when momos are steaming & ready</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleEnableCustomerPush}
+                  disabled={pushStatus === 'requesting'}
+                  className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs font-bold transition-all shadow-xs shrink-0 flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <BellRing className="w-3.5 h-3.5" />
+                  <span>{pushStatus === 'requesting' ? 'Enabling...' : 'Enable Alerts'}</span>
+                </button>
+              </div>
+            )}
 
             {/* Action Buttons: Track Order, Call, WhatsApp, Continue Browsing (Requirement 9) */}
             <div className="w-full space-y-2 pt-2">

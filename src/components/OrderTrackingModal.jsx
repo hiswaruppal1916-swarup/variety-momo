@@ -30,7 +30,8 @@ import {
   checkFcmSupport,
   requestNotificationPermission,
   getFcmToken,
-  registerPushSubscriptionInDatabase
+  registerPushSubscriptionInDatabase,
+  registerCustomerOrdersPushInDatabase
 } from '../lib/firebase';
 
 export default function OrderTrackingModal() {
@@ -126,6 +127,20 @@ export default function OrderTrackingModal() {
           const isSubscribed = localStorage.getItem(`fcm_sub_${activeTracking?.orderNumber}`);
           if (isSubscribed) {
             setPushStatus('enabled');
+          } else if (activeTracking?.orderNumber && activeTracking?.trackingToken) {
+            // Auto-register device token for this order if permission is already granted
+            getFcmToken().then(async (token) => {
+              if (token && mounted) {
+                await registerPushSubscriptionInDatabase({
+                  userType: 'CUSTOMER',
+                  orderNumber: activeTracking.orderNumber,
+                  trackingToken: activeTracking.trackingToken,
+                  fcmToken: token
+                });
+                localStorage.setItem(`fcm_sub_${activeTracking.orderNumber}`, 'true');
+                setPushStatus('enabled');
+              }
+            }).catch((e) => console.warn('[FCM] Auto-register failed:', e));
           }
         } else if (Notification.permission === 'denied') {
           setPushStatus('denied');
@@ -135,7 +150,7 @@ export default function OrderTrackingModal() {
     return () => {
       mounted = false;
     };
-  }, [activeTracking?.orderNumber]);
+  }, [activeTracking?.orderNumber, activeTracking?.trackingToken]);
 
   const handleEnableCustomerPush = async () => {
     if (!orderDetails?.order?.order_number || !activeTracking?.trackingToken) return;
@@ -156,6 +171,18 @@ export default function OrderTrackingModal() {
           fcmToken: token
         });
         localStorage.setItem(`fcm_sub_${orderDetails.order.order_number}`, 'true');
+
+        // Also sync all existing customer orders from localStorage
+        try {
+          const storedTokens = JSON.parse(localStorage.getItem('variety_momo_tokens') || '[]');
+          if (storedTokens.length > 0) {
+            await registerCustomerOrdersPushInDatabase({
+              trackingTokens: storedTokens,
+              fcmToken: token
+            });
+          }
+        } catch (e) {}
+
         setPushStatus('enabled');
       } else {
         setPushStatus('denied');

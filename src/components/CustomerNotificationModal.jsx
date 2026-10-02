@@ -13,10 +13,16 @@ import {
   CreditCard,
   AlertCircle,
   Trash2,
-  Calendar
+  Calendar,
+  BellRing
 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { formatKolkataDateTime } from '../services/restaurantService';
+import {
+  requestNotificationPermission,
+  getFcmToken,
+  registerCustomerOrdersPushInDatabase
+} from '../lib/firebase';
 
 export default function CustomerNotificationModal() {
   const {
@@ -28,7 +34,8 @@ export default function CustomerNotificationModal() {
     markAllCustomerNotifsRead,
     deleteCustomerNotif,
     deleteAllCustomerNotifs,
-    openOrderTracking
+    openOrderTracking,
+    customerTokens
   } = useCart();
 
   const [activeFilter, setActiveFilter] = useState('ALL'); // 'ALL' | 'UNREAD'
@@ -36,6 +43,31 @@ export default function CustomerNotificationModal() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [enablingPush, setEnablingPush] = useState(false);
+  const [pushGranted, setPushGranted] = useState(() => {
+    return typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
+  });
+
+  const handleEnablePush = async () => {
+    setEnablingPush(true);
+    try {
+      const permission = await requestNotificationPermission();
+      if (permission === 'granted') {
+        setPushGranted(true);
+        const token = await getFcmToken();
+        if (token && customerTokens && customerTokens.length > 0) {
+          await registerCustomerOrdersPushInDatabase({
+            trackingTokens: customerTokens,
+            fcmToken: token
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[FCM] Enable push from modal failed:', e);
+    } finally {
+      setEnablingPush(false);
+    }
+  };
 
   if (!isCustomerNotifOpen) return null;
 
@@ -195,6 +227,27 @@ export default function CustomerNotificationModal() {
             )}
           </div>
         </div>
+
+        {/* Push Enable Banner if not granted */}
+        {!pushGranted && typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'denied' && (
+          <div className="px-4 py-2.5 bg-amber-50/90 border-b border-amber-200/80 flex items-center justify-between gap-3 shrink-0 animate-in fade-in duration-200">
+            <div className="flex items-center gap-2 min-w-0">
+              <BellRing className="w-4 h-4 text-amber-600 shrink-0" />
+              <div>
+                <div className="font-bold text-amber-950 text-xs">Get Live Phone Alerts</div>
+                <div className="text-[10px] text-amber-800 leading-tight">Beep on phone when orders update</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleEnablePush}
+              disabled={enablingPush}
+              className="px-3 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs font-bold transition-all shadow-xs shrink-0 flex items-center gap-1 disabled:opacity-50"
+            >
+              <span>{enablingPush ? 'Enabling...' : 'Enable'}</span>
+            </button>
+          </div>
+        )}
 
         {/* Notification List */}
         <div className="p-4 overflow-y-auto space-y-2.5 flex-1 divide-y divide-stone-100/80">

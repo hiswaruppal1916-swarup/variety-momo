@@ -11,6 +11,7 @@ import {
   deleteAllCustomerNotifications
 } from '../services/restaurantService';
 import { supabase } from '../lib/supabase';
+import { getFcmToken, registerCustomerOrdersPushInDatabase } from '../lib/firebase';
 
 const CartContext = createContext();
 
@@ -334,6 +335,21 @@ export function CartProvider({ children }) {
   useEffect(() => {
     fetchCustomerNotifs();
   }, [fetchCustomerNotifs]);
+
+  // Sync all customer orders with device FCM token when permission is active
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission === 'granted' && customerTokens && customerTokens.length > 0) {
+      getFcmToken().then((token) => {
+        if (token) {
+          registerCustomerOrdersPushInDatabase({
+            trackingTokens: customerTokens,
+            fcmToken: token
+          }).catch((err) => console.warn('[FCM] Auto-sync orders push warning:', err));
+        }
+      }).catch(() => {});
+    }
+  }, [customerTokens]);
 
   // Realtime subscription for customer notifications
   useEffect(() => {
