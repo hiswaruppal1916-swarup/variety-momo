@@ -29,7 +29,19 @@ export default function OwnerLogin({ onNavigate }) {
   };
 
   return (
-    <div className="min-h-screen bg-stone-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8 px-4 text-white">
+    <div className="relative min-h-screen bg-stone-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8 px-4 text-white">
+      {/* Top Bar with Back to Store */}
+      <div className="absolute top-4 left-4 z-20">
+        <button
+          onClick={() => onNavigate ? onNavigate('home') : window.location.pathname = '/'}
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-stone-900 hover:bg-stone-800 text-stone-200 hover:text-white text-xs font-bold transition-all border border-stone-800 shadow-sm active:scale-95"
+          title="Back to Customer Storefront"
+        >
+          <ArrowLeft className="w-4 h-4 text-brand-400" />
+          <span>Back to Store</span>
+        </button>
+      </div>
+
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
           <img

@@ -108,10 +108,12 @@ export default function CustomerNotificationModal() {
             <button
               type="button"
               onClick={closeCustomerNotif}
-              className="p-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white transition-colors mr-1"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-stone-800 hover:bg-stone-700 text-stone-200 hover:text-white text-xs font-bold transition-all border border-stone-700 active:scale-95 shrink-0"
               title="Back"
+              aria-label="Back"
             >
               <ArrowLeft className="w-4 h-4" />
+              <span>Back</span>
             </button>
 
             <div className="w-9 h-9 rounded-2xl bg-brand-600/30 border border-brand-500/40 text-brand-400 flex items-center justify-center shrink-0">

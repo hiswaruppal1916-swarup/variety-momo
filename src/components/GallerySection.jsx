@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Camera, Eye, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Camera, Eye, X, ArrowLeft } from 'lucide-react';
 
 const galleryPhotos = [
   {
@@ -49,20 +49,63 @@ const galleryPhotos = [
 export default function GallerySection() {
   const [activePhoto, setActivePhoto] = useState(null);
 
+  const handleOpenPhoto = (photo) => {
+    window.history.pushState({ varietyModal: 'gallery-lightbox' }, '');
+    setActivePhoto(photo);
+  };
+
+  const handleClosePhoto = () => {
+    if (window.history.state?.varietyModal === 'gallery-lightbox') {
+      window.history.back();
+    } else {
+      setActivePhoto(null);
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (activePhoto) {
+        setActivePhoto(null);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [activePhoto]);
+
+  const handleBackToMenu = () => {
+    const el = document.getElementById('menu');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   return (
     <section id="gallery" className="py-8 sm:py-12 bg-stone-50/60">
       <div className="max-w-7xl mx-auto px-3 sm:px-6">
-        <div className="text-center max-w-lg mx-auto mb-6 sm:mb-8">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-50 text-brand-700 text-xs font-bold uppercase tracking-wider mb-2">
-            <Camera className="w-3.5 h-3.5 fill-brand-600 text-brand-600" />
-            <span>Behind The Scenes</span>
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-6 sm:mb-8 gap-3">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-50 text-brand-700 text-xs font-bold uppercase tracking-wider mb-2">
+              <Camera className="w-3.5 h-3.5 fill-brand-600 text-brand-600" />
+              <span>Behind The Scenes</span>
+            </div>
+            <h2 className="font-outfit font-extrabold text-stone-900 text-xl sm:text-3xl tracking-tight">
+              Variety Momo Gallery
+            </h2>
+            <p className="text-xs sm:text-sm text-stone-500 mt-1">
+              Glimpses of our sizzling kitchen, authentic pleating, and mouth-watering plates.
+            </p>
           </div>
-          <h2 className="font-outfit font-extrabold text-stone-900 text-xl sm:text-3xl tracking-tight">
-            Variety Momo Gallery
-          </h2>
-          <p className="text-xs sm:text-sm text-stone-500 mt-1">
-            Glimpses of our sizzling kitchen, authentic pleating, and mouth-watering plates.
-          </p>
+
+          <button
+            onClick={handleBackToMenu}
+            className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white hover:bg-stone-100 text-stone-700 text-xs font-bold transition-all border border-stone-200 active:scale-95 shadow-xs shrink-0"
+            title="Back to Menu"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Back to Menu</span>
+          </button>
         </div>
 
         {/* Gallery Grid */}
@@ -70,7 +113,7 @@ export default function GallerySection() {
           {galleryPhotos.map((photo) => (
             <div
               key={photo.id}
-              onClick={() => setActivePhoto(photo)}
+              onClick={() => handleOpenPhoto(photo)}
               className="group relative aspect-square rounded-2xl overflow-hidden cursor-pointer shadow-xs hover:shadow-md bg-stone-200"
             >
               <img
@@ -92,21 +135,34 @@ export default function GallerySection() {
         </div>
       </div>
 
-      {/* Lightbox Modal */}
+      {/* Lightbox Modal with Back Button & Android Back Integration */}
       {activePhoto && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div
             className="fixed inset-0"
-            onClick={() => setActivePhoto(null)}
+            onClick={handleClosePhoto}
             aria-hidden="true"
           />
           <div className="relative max-w-2xl w-full bg-white rounded-2xl overflow-hidden shadow-2xl z-10">
+            {/* Top Left Back Button */}
             <button
-              onClick={() => setActivePhoto(null)}
+              onClick={handleClosePhoto}
+              className="absolute top-3 left-3 z-20 px-3 py-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-md active:scale-95 border border-white/20"
+              aria-label="Back to gallery"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back</span>
+            </button>
+
+            {/* Top Right Close Button */}
+            <button
+              onClick={handleClosePhoto}
               className="absolute top-3 right-3 z-20 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white transition-colors"
+              aria-label="Close"
             >
               <X className="w-5 h-5" />
             </button>
+
             <img
               src={activePhoto.url}
               alt={activePhoto.title}

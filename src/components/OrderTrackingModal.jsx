@@ -302,10 +302,12 @@ export default function OrderTrackingModal() {
             <button
               type="button"
               onClick={closeOrderTracking}
-              className="p-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white transition-colors mr-0.5"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-stone-800 hover:bg-stone-700 text-stone-200 hover:text-white text-xs font-bold transition-all border border-stone-700 active:scale-95 shrink-0"
               title="Back"
+              aria-label="Back"
             >
               <ArrowLeft className="w-4 h-4" />
+              <span>Back</span>
             </button>
 
             <img

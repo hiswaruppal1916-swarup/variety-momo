@@ -92,6 +92,30 @@ export default function CartDrawer() {
     }
   }, [isCartOpen]);
 
+  // Handle Android Back button when inside checkout step
+  const handleProceedToCheckout = () => {
+    window.history.pushState({ varietyModal: 'checkout' }, '');
+    setCheckoutStep('checkout');
+  };
+
+  const handleBackFromCheckout = () => {
+    if (window.history.state?.varietyModal === 'checkout') {
+      window.history.back();
+    } else {
+      setCheckoutStep('cart');
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (checkoutStep === 'checkout') {
+        setCheckoutStep('cart');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [checkoutStep]);
+
   if (!isCartOpen) return null;
 
   // Handle GPS location click
@@ -260,22 +284,24 @@ export default function CartDrawer() {
             {checkoutStep === 'checkout' ? (
               <button
                 type="button"
-                onClick={() => setCheckoutStep('cart')}
-                className="p-1.5 -ml-1 rounded-full hover:bg-stone-200 text-stone-700 transition-colors flex items-center gap-1 active:scale-95"
+                onClick={handleBackFromCheckout}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold transition-all border border-stone-200 active:scale-95 shrink-0"
                 title="Back to Cart"
                 aria-label="Back to Cart"
               >
-                <ArrowLeft className="w-5 h-5 text-stone-800" />
+                <ArrowLeft className="w-4 h-4 text-stone-800" />
+                <span>Back</span>
               </button>
             ) : (
               <button
                 type="button"
                 onClick={closeCart}
-                className="p-1.5 -ml-1 rounded-full hover:bg-stone-200 text-stone-700 transition-colors flex items-center gap-1 active:scale-95 sm:hidden"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold transition-all border border-stone-200 active:scale-95 shrink-0"
                 title="Back to Menu"
                 aria-label="Back to Menu"
               >
-                <ArrowLeft className="w-5 h-5 text-stone-800" />
+                <ArrowLeft className="w-4 h-4 text-stone-800" />
+                <span>Back</span>
               </button>
             )}
             <div className="w-8 h-8 rounded-full bg-brand-600 text-white flex items-center justify-center font-bold shrink-0">
@@ -993,7 +1019,7 @@ export default function CartDrawer() {
         {cartItems.length > 0 && checkoutStep === 'cart' && (
           <div className="p-4 border-t border-stone-100 bg-white shrink-0 pb-safe">
             <button
-              onClick={() => setCheckoutStep('checkout')}
+              onClick={handleProceedToCheckout}
               className="w-full py-3.5 px-4 rounded-xl bg-brand-600 hover:bg-brand-700 active:scale-98 text-white font-outfit font-bold text-sm tracking-wide shadow-lg shadow-brand-600/30 flex items-center justify-between transition-all"
             >
               <div className="text-left">
@@ -1021,11 +1047,12 @@ export default function CartDrawer() {
             <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => setCheckoutStep('cart')}
+              onClick={handleBackFromCheckout}
               disabled={isSubmitting}
-              className="px-4 py-3.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-outfit font-bold text-xs uppercase tracking-wider transition-all"
+              className="px-4 py-3.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-outfit font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-1.5"
             >
-              Back
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back</span>
             </button>
 
             <button

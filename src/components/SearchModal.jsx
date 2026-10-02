@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, X, Star, Plus } from 'lucide-react';
+import { Search, X, Star, Plus, ArrowLeft } from 'lucide-react';
 import { menuItems } from '../data/menuItems';
 import { useCart } from '../context/CartContext';
 
@@ -33,9 +33,19 @@ export default function SearchModal() {
       />
 
       <div className="relative bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden z-10 my-4 flex flex-col max-h-[88vh]">
-        {/* Search Input Bar */}
-        <div className="p-4 border-b border-stone-100 flex items-center gap-3 bg-stone-50/80">
-          <Search className="w-5 h-5 text-stone-400 shrink-0" />
+        {/* Search Input Bar with Back Button */}
+        <div className="p-3 sm:p-4 border-b border-stone-100 flex items-center gap-2.5 bg-stone-50/80">
+          <button
+            onClick={closeSearch}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold transition-all border border-stone-200 active:scale-95 shrink-0"
+            title="Back to menu"
+            aria-label="Back to menu"
+          >
+            <ArrowLeft className="w-4 h-4 text-stone-800" />
+            <span>Back</span>
+          </button>
+
+          <Search className="w-4 h-4 text-stone-400 shrink-0" />
           <input
             type="text"
             autoFocus

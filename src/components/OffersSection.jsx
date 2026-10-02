@@ -1,13 +1,22 @@
 import React from 'react';
-import { Tag, Sparkles, ArrowRight, Percent, Gift } from 'lucide-react';
+import { Tag, Sparkles, ArrowRight, Percent, Gift, ArrowLeft } from 'lucide-react';
 import { specialOffers } from '../data/offers';
 import { useCart } from '../context/CartContext';
 
 export default function OffersSection() {
   const { openCart } = useCart();
 
+  const handleBackToMenu = () => {
+    const el = document.getElementById('menu');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   return (
-    <section className="py-5 sm:py-7">
+    <section id="offers" className="py-5 sm:py-7">
       <div className="max-w-7xl mx-auto px-3 sm:px-6">
         <div className="flex items-center justify-between mb-3.5 sm:mb-4">
           <div>
@@ -19,6 +28,15 @@ export default function OffersSection() {
               Today's Special Offers
             </h2>
           </div>
+
+          <button
+            onClick={handleBackToMenu}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold transition-all border border-stone-200 active:scale-95 shadow-xs"
+            title="Back to Menu"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Back to Menu</span>
+          </button>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">

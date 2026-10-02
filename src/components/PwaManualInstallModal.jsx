@@ -41,13 +41,25 @@ export default function PwaManualInstallModal() {
                 </p>
               </div>
             </div>
-            <button
-              onClick={closeManualGuide}
-              className="p-1.5 rounded-full text-white/80 hover:text-white hover:bg-white/10 transition-colors"
-              aria-label="Close"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={closeManualGuide}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-white/20 hover:bg-white/30 text-white text-xs font-bold transition-all border border-white/20 active:scale-95 shrink-0"
+                title="Back"
+                aria-label="Back"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back</span>
+              </button>
+
+              <button
+                onClick={closeManualGuide}
+                className="p-1.5 rounded-full text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
         </div>
 

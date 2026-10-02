@@ -371,11 +371,10 @@ export function CartProvider({ children }) {
   }, []);
 
   const popModal = useCallback((modalId, fallbackClose) => {
-    const idx = modalHistoryRef.current.lastIndexOf(modalId);
-    if (idx !== -1 && window.history.state?.varietyModal) {
-      modalHistoryRef.current.splice(idx, 1);
+    if (window.history.state?.varietyModal === modalId) {
       window.history.back();
     } else {
+      const idx = modalHistoryRef.current.lastIndexOf(modalId);
       if (idx !== -1) modalHistoryRef.current.splice(idx, 1);
       fallbackClose();
     }

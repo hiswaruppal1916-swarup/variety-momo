@@ -1,12 +1,21 @@
 import React from 'react';
-import { Star, MessageCircle, Quote, CheckCircle } from 'lucide-react';
+import { Star, MessageCircle, Quote, CheckCircle, ArrowLeft } from 'lucide-react';
 import { customerReviews } from '../data/reviews';
 
 export default function ReviewsSection() {
+  const handleBackToMenu = () => {
+    const el = document.getElementById('menu');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   return (
     <section id="reviews" className="py-8 sm:py-12 bg-white">
       <div className="max-w-7xl mx-auto px-3 sm:px-6">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-6 sm:mb-8 gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-6 sm:mb-8 gap-3">
           <div>
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-800 text-xs font-bold uppercase tracking-wider mb-2">
               <Star className="w-3.5 h-3.5 fill-amberGold text-amberGold" />
@@ -20,15 +29,26 @@ export default function ReviewsSection() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3 bg-stone-50 border border-stone-200/80 px-4 py-2 rounded-2xl shrink-0">
-            <div className="font-outfit font-black text-2xl text-stone-900">4.8</div>
-            <div className="text-left">
-              <div className="flex text-amberGold">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={i} className="w-3.5 h-3.5 fill-amberGold" />
-                ))}
+          <div className="flex items-center gap-3 self-start sm:self-auto">
+            <button
+              onClick={handleBackToMenu}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold transition-all border border-stone-200 active:scale-95 shadow-xs shrink-0"
+              title="Back to Menu"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to Menu</span>
+            </button>
+
+            <div className="flex items-center gap-3 bg-stone-50 border border-stone-200/80 px-4 py-2 rounded-2xl shrink-0">
+              <div className="font-outfit font-black text-2xl text-stone-900">4.8</div>
+              <div className="text-left">
+                <div className="flex text-amberGold">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="w-3.5 h-3.5 fill-amberGold" />
+                  ))}
+                </div>
+                <div className="text-[11px] text-stone-500 font-medium">1,250+ Ratings</div>
               </div>
-              <div className="text-[11px] text-stone-500 font-medium">1,250+ Ratings</div>
             </div>
           </div>
         </div>

@@ -8,7 +8,8 @@ import {
   Loader2,
   AlertTriangle,
   CheckCircle2,
-  ExternalLink
+  ExternalLink,
+  ArrowLeft
 } from 'lucide-react';
 import { getOwnerSession, logoutOwner } from '../services/authService';
 import {
@@ -363,13 +364,14 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
               )}
             </button>
 
-            {/* Quick Public View */}
+            {/* Quick Public Storefront Back Button */}
             <button
               onClick={handleNavigateHome}
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-300 text-xs font-semibold border border-stone-800 transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-200 hover:text-white text-xs font-bold border border-stone-800 transition-colors shadow-xs active:scale-95"
+              title="Back to Customer Storefront"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>Store</span>
+              <ArrowLeft className="w-3.5 h-3.5 text-brand-400" />
+              <span>Back to Store</span>
             </button>
           </div>
         </header>
