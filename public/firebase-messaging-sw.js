@@ -7,7 +7,7 @@
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
-const CACHE_NAME = 'variety-momo-v3';
+const CACHE_NAME = 'variety-momo-v4';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -71,6 +71,7 @@ if (messaging) {
       vibrate: [200, 100, 200, 100, 200],
       tag: notifTag,
       renotify: true,
+      requireInteraction: true,
       data: {
         click_action: clickAction,
         order_number: orderNumber,
@@ -87,6 +88,62 @@ if (messaging) {
     return self.registration.showNotification(title, notificationOptions);
   });
 }
+
+// Native Web Push Fallback (ensures background push displays even if Firebase compat script is sleeping)
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+  try {
+    const raw = event.data.json();
+    const notif = raw.notification || {};
+    const data = raw.data || {};
+    const title = notif.title || data.title || 'Variety Momo';
+    const body = notif.body || data.body || 'Order update received.';
+    const clickAction = data.click_action || data.url || data.link || '/';
+    const orderNumber = data.order_number || '';
+    const notifTag = orderNumber ? `order-${orderNumber}` : (data.tag || 'variety-momo-alert');
+
+    event.waitUntil(
+      self.registration.getNotifications({ tag: notifTag }).then((existing) => {
+        // Prevent duplicate popup if already shown by FCM SDK
+        if (existing && existing.length > 0) return;
+        return self.registration.showNotification(title, {
+          body,
+          icon: '/variety-momo-logo.jpg',
+          badge: '/favicon-96x96.png',
+          tag: notifTag,
+          renotify: true,
+          requireInteraction: true,
+          vibrate: [200, 100, 200, 100, 200],
+          data: {
+            click_action: clickAction,
+            order_number: orderNumber,
+            order_id: data.order_id
+          },
+          actions: [
+            {
+              action: 'open_order',
+              title: 'View Details'
+            }
+          ]
+        });
+      })
+    );
+  } catch (e) {
+    try {
+      const text = event.data.text();
+      if (text) {
+        event.waitUntil(
+          self.registration.showNotification('Variety Momo', {
+            body: text,
+            icon: '/variety-momo-logo.jpg',
+            badge: '/favicon-96x96.png',
+            tag: 'variety-momo-text'
+          })
+        );
+      }
+    } catch (err) {}
+  }
+});
 
 // Notification Click Event Handling
 self.addEventListener('notificationclick', (event) => {

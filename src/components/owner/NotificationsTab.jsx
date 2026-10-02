@@ -8,6 +8,7 @@ import {
   Trash2,
   ShoppingBag,
   AlertTriangle,
+  ArrowLeft,
   X
 } from 'lucide-react';
 import {
@@ -19,7 +20,7 @@ import {
   formatKolkataDateTime
 } from '../../services/restaurantService';
 
-export default function NotificationsTab({ onSelectTab, onNotificationsUpdated }) {
+export default function NotificationsTab({ onSelectTab, onNotificationsUpdated, onBack }) {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -27,6 +28,14 @@ export default function NotificationsTab({ onSelectTab, onNotificationsUpdated }
   const [deletingAll, setDeletingAll] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+
+  const handleBack = () => {
+    if (onBack) {
+      onBack();
+    } else if (onSelectTab) {
+      onSelectTab('overview');
+    }
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -109,6 +118,18 @@ export default function NotificationsTab({ onSelectTab, onNotificationsUpdated }
 
   return (
     <div className="space-y-6">
+      {/* Top Back Navigation Bar */}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={handleBack}
+          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-200 hover:text-white border border-stone-800 text-sm font-bold transition-all active:scale-95 shadow-sm group"
+          title="Back to Previous Dashboard View"
+        >
+          <ArrowLeft className="w-4 h-4 text-brand-400 group-hover:-translate-x-0.5 transition-transform" />
+          <span>← Back to Dashboard</span>
+        </button>
+      </div>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-stone-900/70 p-4 rounded-2xl border border-stone-800">
         <div>

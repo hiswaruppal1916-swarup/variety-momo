@@ -50,6 +50,8 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
   const [ordersScope, setOrdersScope] = useState('TODAY');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  const [previousTab, setPreviousTab] = useState('overview');
+
   const handleOpenMobileMenu = () => {
     window.history.pushState({ varietyOwnerModal: 'drawer' }, '');
     setIsMobileMenuOpen(true);
@@ -67,17 +69,33 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
     }
   };
 
+  const handleBackFromNotifications = () => {
+    if (window.history.state?.varietyOwnerTab === 'notifications') {
+      window.history.back();
+    } else {
+      setActiveTab(previousTab || 'overview');
+    }
+  };
+
   useEffect(() => {
     const handlePopState = () => {
       if (isMobileMenuOpen) {
         setIsMobileMenuOpen(false);
+        return;
+      }
+      if (activeTab === 'notifications') {
+        setActiveTab(previousTab || 'overview');
       }
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [isMobileMenuOpen]);
+  }, [isMobileMenuOpen, activeTab, previousTab]);
 
   const handleSelectTab = (tab, orderId = null, scope = 'TODAY') => {
+    if (tab === 'notifications' && activeTab !== 'notifications') {
+      setPreviousTab(activeTab);
+      window.history.pushState({ varietyOwnerTab: 'notifications', prev: activeTab }, '');
+    }
     setActiveTab(tab);
     if (orderId) {
       setSelectedOrderId(orderId);
@@ -451,6 +469,7 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
             <NotificationsTab
               onSelectTab={handleSelectTab}
               onNotificationsUpdated={loadDashboardData}
+              onBack={handleBackFromNotifications}
             />
           )}
         </main>

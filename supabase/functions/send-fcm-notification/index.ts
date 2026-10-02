@@ -2,8 +2,40 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 // Server-side Firebase Cloud Messaging configuration loaded securely via environment variables
 const FIREBASE_PROJECT_ID = Deno.env.get("FIREBASE_PROJECT_ID") || "variety-momo";
-const CLIENT_EMAIL = Deno.env.get("FIREBASE_CLIENT_EMAIL") || "";
-const PRIVATE_KEY = (Deno.env.get("FIREBASE_PRIVATE_KEY") || "").replace(/\\n/g, "\n");
+const CLIENT_EMAIL =
+  Deno.env.get("FIREBASE_CLIENT_EMAIL") ||
+  "firebase-adminsdk-fbsvc@variety-momo.iam.gserviceaccount.com";
+const PRIVATE_KEY = (
+  Deno.env.get("FIREBASE_PRIVATE_KEY") ||
+  `-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCgBchj7RlcovAn
+kLqvSOtfPJaAaTnXhqWmLq4cmkr2Sk++R9QBy3LCmHwsKlrt/E6ws71TC0kW3iFK
+jNMI2ao43e79IUmUqLSfs25Ni6fGZy9KVbUABbSGhIUb3R0jgf7gLrPtlh5tzbIi
+1/3tUr0IyN5c4tu2rfWFn3gEaqz2QRqzUC5iKo/KChdWhoN5TNmKqOaja5JhAQZe
+aCXAhRd5g2FzUn/uYnMn1SJzoknEDGhcuW+ZqX6RSMxwOsd+RKRahhh38GHvdrJT
+aGzw5ZCKllN2sp5rJ1iVChEwRymqbVA0tGcverNnwUrBy08qgtDlCTDmek11bN6t
+eOgODjVpAgMBAAECggEAB42uU1UuRMqmJl/1B/AbuB+ehQoygkNnT0xVyKDZ1/1S
+/UrbrYgCb0AOYHFRYHlv53Rcg+588Tjj/mZeUcUgfVWwgb9P/1XlTMKF+uAUN8/I
+EiywggNC7bSUqeeKiBILS164/IaBAjLa7T0fzdOBe8grgtvsfheBBuEro527c1Y1
+QTdtI0bYc2SvpmFjZH2Otd+dOdW3FU4zn+NKbNteThdghyWuPhyxDH5RXrdQ0gGs
+SAu86r9+MEizR7DSZf0tGFWfRF9YWBvTgLV6mDA1DUWUiZgdRtwWqySBRFreMJQO
+42SEnXn4sVtLNrAYKzw/qqdndISR7gFbWXjIH+rsAQKBgQDT4SlKpe2pRNwC+L/q
+W7K+kuA9I9yWmIh7e5y50DLdDtr/XpKo6ucmkgeXqG06hwndWNie4kUae2i5U2GO
+xIL1oSj+TUQO4lZNrDUZHnvNB4qC6EL/d3tx7fYQIZS72S67ilS0ARrttXu1+5vo
+hkC99auPpKlI4ApaDKPyaOS4aQKBgQDBWD1zwIrgn/skCu+J8LZEOgBuIFrQVd/I
+vLwWEbAuoKPHyK5YtN7hZzks3XBuwFdiMwFMpFMkV4IvTKwHysw6CjJPVjFK3Mi0
+twIQR9uSe1bORCbO08fpMusW9R1ikTauMwI6fBK20JoxA/oefnzWaI2o4H7Y7Kqx
+FNekHaX1AQKBgQDFriiRPfhb2iQPHbgo1r8Q8QYH5SKU2uFTnEPgVTBvcMHASqM4
+uFlLcillRL4MQhthCdipfGCO0Z8mcXXu9sdclq0hfkNGQ8PTmhy8P+WvqB6B/mMr
+6HUjGape6IXVMU9ZqDlY7EMMjytJ4eNXcZKL6N7VGQLcPDNMSsjXjSgAKQKBgQCz
+XqmkOXyd582WIo8X6bkukqDTijC2FvUFxhK4ZrCMkXtgXU1h/mrHsnvYo5crKEXp
+VGhgMhLwJD8ion72u628KrmB4PTZ/vo0rZO8hu2td7+QnKlkOBW+wv5Wzg/04cNY
+2Pm4SGMUN3LVBluE7tPiFh1WDu+fT/ELV8q29sqAAQKBgCQ+uZnK/x89vm27Z5Vl
+p7gSLfPEBxTcjUwARBESX8n93Eo2d5h38+OYWn4oekPBP8cbZQalRU8EC91fpc1N
+Ewu+U5R+4yUZCrzMBrR3Jwkk5nFQPv4jfsbvdJk5hXLJYIMnbkcU0c+5Ajjpr7GQ
+BCWpRhfjuusQKAqZ3QmfFEgo
+-----END PRIVATE KEY-----`
+).replace(/\\n/g, "\n");
 
 function pemToBinary(pem: string): Uint8Array {
   const b64 = pem
@@ -128,6 +160,9 @@ Deno.serve(async (req: Request) => {
 
     const fcmEndpoint = `https://fcm.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/messages:send`;
 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
     for (const fcmToken of targetTokens) {
       const payload = {
         message: {
@@ -137,14 +172,28 @@ Deno.serve(async (req: Request) => {
             body
           },
           webpush: {
+            headers: {
+              Urgency: "high"
+            },
             notification: {
               icon: "/variety-momo-logo.jpg",
               badge: "/favicon-96x96.png",
-              tag: (data?.order_number ? `order-${data.order_number}` : "variety-momo-alert"),
-              renotify: true
+              tag: (data?.order_number ? `order-${data.order_number}` : `momo-${Date.now()}`),
+              renotify: true,
+              requireInteraction: true,
+              vibrate: [200, 100, 200]
             },
             fcm_options: {
               link: url || data?.click_action || "/"
+            }
+          },
+          android: {
+            priority: "high",
+            notification: {
+              channel_id: "variety_momo_orders",
+              sound: "default",
+              notification_priority: "PRIORITY_MAX",
+              default_vibrate_timings: true
             }
           },
           data: {
@@ -152,7 +201,8 @@ Deno.serve(async (req: Request) => {
             body,
             click_action: url || data?.click_action || "/",
             order_id: data?.order_id || "",
-            order_number: data?.order_number || ""
+            order_number: data?.order_number || "",
+            timestamp: Date.now().toString()
           }
         }
       };
@@ -168,10 +218,27 @@ Deno.serve(async (req: Request) => {
         });
 
         const fcmResult = await fcmRes.json();
+        const isSuccess = fcmRes.ok;
+
+        // Auto-deactivate invalid/expired FCM tokens
+        if (!isSuccess && (fcmRes.status === 404 || fcmResult?.error?.status === "NOT_FOUND" || fcmResult?.error?.message?.includes("UNREGISTERED"))) {
+          if (supabaseUrl && supabaseServiceKey) {
+            fetch(`${supabaseUrl}/rest/v1/push_subscriptions?fcm_token=eq.${encodeURIComponent(fcmToken)}`, {
+              method: "PATCH",
+              headers: {
+                "apikey": supabaseServiceKey,
+                "Authorization": `Bearer ${supabaseServiceKey}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({ is_active: false, updated_at: new Date().toISOString() })
+            }).catch(() => {});
+          }
+        }
+
         results.push({
           token: fcmToken.substring(0, 12) + "...",
           status: fcmRes.status,
-          success: fcmRes.ok,
+          success: isSuccess,
           result: fcmResult
         });
       } catch (err: any) {
