@@ -5,15 +5,24 @@ import './index.css';
 
 // Register unified PWA / Firebase Messaging Service Worker
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
+  const registerWorker = () => {
     navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' })
       .then((reg) => {
-        // Successfully registered service worker
+        // SW registered successfully
+        if (reg && reg.update) {
+          reg.update().catch(() => {});
+        }
       })
       .catch((err) => {
-        console.warn('PWA Service Worker registration skipped:', err);
+        console.warn('[PWA] Service Worker registration skipped:', err);
       });
-  });
+  };
+
+  if (document.readyState === 'complete') {
+    registerWorker();
+  } else {
+    window.addEventListener('load', registerWorker);
+  }
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(

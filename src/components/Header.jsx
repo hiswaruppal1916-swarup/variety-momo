@@ -6,9 +6,11 @@ import {
   Phone,
   Clock,
   KeyRound,
-  Bell
+  Bell,
+  Download
 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
+import { usePwa } from '../context/PwaContext';
 import { restaurantInfo } from '../data/restaurantInfo';
 
 // Authentic Official WhatsApp SVG Icon
@@ -32,6 +34,8 @@ export default function Header({ onNavigate }) {
     openCustomerNotif
   } = useCart();
 
+  const { isStandalone, installApp } = usePwa();
+
   const handleOwnerClick = (e) => {
     e.preventDefault();
     if (onNavigate) {
@@ -44,7 +48,7 @@ export default function Header({ onNavigate }) {
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-stone-200/90 shadow-xs transition-all">
-      {/* Top Banner with Location, Call, WhatsApp & Owner Portal Link */}
+      {/* Top Banner with Location, Call, WhatsApp, Install & Owner Portal Link */}
       <div className="bg-stone-900 text-stone-200 text-xs py-1.5 px-3 sm:px-6 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 truncate">
           <MapPin className="w-3.5 h-3.5 text-brand-500 shrink-0" />
@@ -52,8 +56,8 @@ export default function Header({ onNavigate }) {
           <span className="hidden sm:inline text-stone-400">• Hot & Fresh Delivery</span>
         </div>
 
-        {/* Call, WhatsApp & Owner Quick Actions */}
-        <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+        {/* Call, WhatsApp, Install App & Owner Quick Actions */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           <a
             href="tel:7827423777"
             className="flex items-center gap-1 text-stone-300 hover:text-white transition-colors"
@@ -73,6 +77,18 @@ export default function Header({ onNavigate }) {
             <WhatsAppIcon className="w-3.5 h-3.5" />
             <span className="hidden xs:inline">WhatsApp</span>
           </a>
+
+          {/* Quick Top Bar Install App (Hidden if already standalone) */}
+          {!isStandalone && (
+            <button
+              onClick={installApp}
+              className="flex items-center gap-1 text-rose-300 hover:text-white transition-colors font-semibold pl-1 border-l border-stone-700"
+              title="Install Variety Momo App"
+            >
+              <Download className="w-3 h-3 text-rose-400" />
+              <span className="text-[11px]">Install</span>
+            </button>
+          )}
 
           {/* Quick Top Bar Owner Link */}
           <a
@@ -131,6 +147,17 @@ export default function Header({ onNavigate }) {
             >
               <Clock className="w-3.5 h-3.5 text-amber-600 animate-spin" style={{ animationDuration: '4s' }} />
               <span>Track {activeTracking.orderNumber}</span>
+            </button>
+          )}
+
+          {!isStandalone && (
+            <button
+              onClick={installApp}
+              className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold transition-all shadow-xs"
+              title="Install Variety Momo App"
+            >
+              <Download className="w-3.5 h-3.5 text-rose-600" />
+              <span>Install App</span>
             </button>
           )}
         </div>

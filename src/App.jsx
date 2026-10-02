@@ -23,6 +23,8 @@ import { Flame, UtensilsCrossed, AlertCircle, Phone, MessageSquare, Clock } from
 import OwnerLogin from './pages/OwnerLogin';
 import OwnerDashboard from './pages/OwnerDashboard';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
+import PwaManualInstallModal from './components/PwaManualInstallModal';
+import { PwaProvider } from './context/PwaContext';
 import ErrorBoundary from './components/ErrorBoundary';
 
 function WhatsAppFloatingIcon({ className = 'w-5 h-5' }) {
@@ -307,8 +309,9 @@ function RestaurantApp({ onNavigate }) {
       <OrderTrackingModal />
       <CustomerNotificationModal />
 
-      {/* PWA In-App Installation Prompt */}
+      {/* PWA In-App Installation Prompt & Manual Guidance Modal */}
       <PwaInstallPrompt />
+      <PwaManualInstallModal />
     </div>
   );
 }
@@ -380,17 +383,19 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      {currentRoute === 'owner-dashboard' && (
-        <OwnerDashboard onNavigate={navigate} initialOrderId={getInitialOwnerOrderId()} />
-      )}
-      {currentRoute === 'owner-login' && (
-        <OwnerLogin onNavigate={navigate} />
-      )}
-      {currentRoute !== 'owner-dashboard' && currentRoute !== 'owner-login' && (
-        <CartProvider>
-          <RestaurantApp onNavigate={navigate} />
-        </CartProvider>
-      )}
+      <PwaProvider>
+        {currentRoute === 'owner-dashboard' && (
+          <OwnerDashboard onNavigate={navigate} initialOrderId={getInitialOwnerOrderId()} />
+        )}
+        {currentRoute === 'owner-login' && (
+          <OwnerLogin onNavigate={navigate} />
+        )}
+        {currentRoute !== 'owner-dashboard' && currentRoute !== 'owner-login' && (
+          <CartProvider>
+            <RestaurantApp onNavigate={navigate} />
+          </CartProvider>
+        )}
+      </PwaProvider>
     </ErrorBoundary>
   );
 }

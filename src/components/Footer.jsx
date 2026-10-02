@@ -1,8 +1,11 @@
 import React from 'react';
-import { MapPin, Phone, Heart, ShieldCheck, Flame, KeyRound } from 'lucide-react';
+import { MapPin, Phone, Heart, ShieldCheck, Flame, KeyRound, Download } from 'lucide-react';
+import { usePwa } from '../context/PwaContext';
 import { restaurantInfo } from '../data/restaurantInfo';
 
 export default function Footer({ onNavigate }) {
+  const { isStandalone, installApp } = usePwa();
+
   return (
     <footer className="bg-stone-950 text-stone-400 text-xs pt-10 pb-20 md:pb-10 border-t border-stone-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -70,12 +73,22 @@ export default function Footer({ onNavigate }) {
           <div>
             © {new Date().getFullYear()} Variety Momo. All rights reserved.
           </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1">
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center gap-1">
               <span>Made with</span>
               <Heart className="w-3 h-3 text-red-500 fill-red-500" />
               <span>for Momo lovers in Mecheda, West Bengal</span>
             </div>
+            {!isStandalone && (
+              <button
+                onClick={installApp}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white transition-colors text-xs font-semibold shadow-xs"
+                title="Install Variety Momo App"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Install App</span>
+              </button>
+            )}
             <a
               href="/owner-login"
               onClick={(e) => {

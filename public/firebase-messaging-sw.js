@@ -7,12 +7,14 @@
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
-const CACHE_NAME = 'variety-momo-v2';
+const CACHE_NAME = 'variety-momo-v3';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
+  '/manifest.webmanifest',
   '/manifest.json',
   '/variety-momo-logo.jpg',
+  '/variety-momo-logo.png',
   '/favicon.ico',
   '/favicon-96x96.png',
   '/favicon-128x128.png',

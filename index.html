@@ -23,7 +23,29 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 
     <!-- Web App Manifest -->
-    <link rel="manifest" href="/manifest.json" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="Variety Momo" />
+    <meta name="msapplication-TileColor" content="#E23744" />
+
+    <!-- Early PWA Install Prompt Capture: Ensures beforeinstallprompt is never lost on fast loads -->
+    <script>
+      (function() {
+        window.deferredPwaPrompt = null;
+        window.addEventListener('beforeinstallprompt', function(e) {
+          e.preventDefault();
+          window.deferredPwaPrompt = e;
+          window.dispatchEvent(new CustomEvent('variety-momo-pwa-ready'));
+        });
+        window.addEventListener('appinstalled', function() {
+          window.deferredPwaPrompt = null;
+          try {
+            localStorage.setItem('variety_momo_pwa_installed', 'true');
+          } catch (_) {}
+          window.dispatchEvent(new CustomEvent('variety-momo-pwa-installed'));
+        });
+      })();
+    </script>
   </head>
   <body class="bg-canvas text-stone-900 antialiased selection:bg-brand-500 selection:text-white min-h-[100dvh]">
     <div id="root"></div>
