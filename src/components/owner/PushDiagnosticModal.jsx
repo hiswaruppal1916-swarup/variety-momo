@@ -110,7 +110,8 @@ export default function PushDiagnosticModal({ isOpen, onClose }) {
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await sendTestOwnerNotification();
+      // Prioritize the device's own active token so the physical device in hand tests directly
+      const result = await sendTestOwnerNotification(currentToken || null);
       setTestResult(result);
     } catch (err) {
       setTestResult({ success: false, error: err.message });
@@ -299,19 +300,50 @@ export default function PushDiagnosticModal({ isOpen, onClose }) {
 
           {/* Real Device Test Result */}
           {testResult && (
-            <div className="p-3.5 rounded-2xl bg-stone-950 border border-brand-500/40 text-xs space-y-2 animate-in fade-in">
+            <div className="p-3.5 rounded-2xl bg-stone-950 border border-brand-500/40 text-xs space-y-3 animate-in fade-in">
               <div className="flex items-center gap-2 text-brand-400 font-bold">
                 <Info className="w-4 h-4" />
-                <span>Test Dispatch Output</span>
+                <span>FCM Test Delivery Report (Step 19 Verification)</span>
               </div>
-              <pre className="p-2.5 rounded-xl bg-stone-900 text-[11px] font-mono text-stone-300 overflow-x-auto border border-stone-800">
+
+              {/* Status Breakdown */}
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="p-2 rounded-xl bg-stone-900 border border-stone-800">
+                  <div className="text-stone-400">Device Token:</div>
+                  <div className="font-bold text-emerald-400">{currentToken ? 'YES (Valid)' : 'NO'}</div>
+                </div>
+                <div className="p-2 rounded-xl bg-stone-900 border border-stone-800">
+                  <div className="text-stone-400">Server Edge Function:</div>
+                  <div className="font-bold text-emerald-400">{testResult.success ? 'SUCCESS (HTTP 200)' : 'FAILED'}</div>
+                </div>
+                <div className="p-2 rounded-xl bg-stone-900 border border-stone-800">
+                  <div className="text-stone-400">FCM Google API:</div>
+                  <div className={`font-bold ${testResult.sentCount > 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {testResult.sentCount > 0 ? 'ACCEPTED (200 OK)' : 'NO TOKENS / SKIPPED'}
+                  </div>
+                </div>
+                <div className="p-2 rounded-xl bg-stone-900 border border-stone-800">
+                  <div className="text-stone-400">Service Worker:</div>
+                  <div className="font-bold text-emerald-400">{swRegistered ? 'REGISTERED & ACTIVE' : 'PENDING'}</div>
+                </div>
+              </div>
+
+              {testResult.sentCount > 0 && (
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-medium">
+                  ✅ Push delivered to Google FCM for physical device display!
+                </div>
+              )}
+
+              {testResult.results?.[0]?.result?.name && (
+                <div className="p-2 rounded-xl bg-stone-900 border border-stone-800 font-mono text-[10px] text-stone-400 break-all">
+                  <span className="text-stone-500">FCM Message ID: </span>
+                  {testResult.results[0].result.name}
+                </div>
+              )}
+
+              <pre className="p-2.5 rounded-xl bg-stone-900 text-[10px] font-mono text-stone-400 overflow-x-auto border border-stone-800 max-h-32">
                 {JSON.stringify(testResult, null, 2)}
               </pre>
-              {testResult.sentCount > 0 && (
-                <p className="text-emerald-400 text-xs font-semibold">
-                  ✅ Notification dispatched to {testResult.sentCount} active owner device(s)!
-                </p>
-              )}
             </div>
           )}
         </div>

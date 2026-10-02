@@ -7,7 +7,7 @@
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
-const CACHE_NAME = 'variety-momo-v5';
+const CACHE_NAME = 'variety-momo-v6';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -52,17 +52,16 @@ if (messaging) {
   messaging.onBackgroundMessage((payload) => {
     console.log('[FCM-SW] Received background message:', payload);
 
-    // CRITICAL FIX: If payload.notification is provided, FCM Web SDK & browser
-    // automatically displays the notification. Calling showNotification here causes
-    // DUPLICATE notifications on the device (Pattern A).
-    if (payload.notification) {
-      console.log('[FCM-SW] Notification payload already displayed by browser/SDK.');
+    // If payload.notification is provided, FCM Web SDK & browser automatically displays it.
+    // Calling showNotification here would cause duplicate notifications.
+    if (payload.notification && payload.notification.title) {
+      console.log('[FCM-SW] Notification payload handled by Firebase SDK.');
       return;
     }
 
-    // Only display manually if this was a data-only FCM push message
-    const title = payload.data?.title || 'Variety Momo';
-    const body = payload.data?.body || 'You have an update on your order.';
+    // Display manually if this was a data-only FCM push message or missing notification title
+    const title = payload.data?.title || payload.notification?.title || 'Variety Momo';
+    const body = payload.data?.body || payload.notification?.body || 'You have an update on your order.';
     const clickAction =
       payload.data?.click_action ||
       payload.data?.url ||
@@ -71,16 +70,18 @@ if (messaging) {
     const orderNumber = payload.data?.order_number || '';
     const notifTag = orderNumber ? `order-${orderNumber}` : (payload.data?.notification_id ? `notif-${payload.data.notification_id}` : 'variety-momo-alert');
 
+    const origin = self.location.origin;
     const notificationOptions = {
       body,
-      icon: '/variety-momo-logo.jpg',
-      badge: '/favicon-96x96.png',
+      icon: `${origin}/pwa-192x192.png`,
+      badge: `${origin}/favicon-96x96.png`,
       tag: notifTag,
-      renotify: false,
+      renotify: true,
       requireInteraction: true,
       vibrate: [200, 100, 200],
       data: {
         click_action: clickAction,
+        url: clickAction,
         order_number: orderNumber,
         order_id: payload.data?.order_id
       },

@@ -133,6 +133,68 @@ export function onForegroundMessage(callback) {
   };
 }
 
+// Display a system-level device notification via Service Worker registration
+export async function showDeviceNotification({ title, body, icon, badge, tag, data, url }) {
+  if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
+    return false;
+  }
+
+  try {
+    const swReg = await navigator.serviceWorker.ready;
+    if (swReg && swReg.showNotification) {
+      const origin = window.location.origin;
+      const notifTag = tag || (data?.order_number ? `order-${data.order_number}` : `momo-${Date.now()}`);
+
+      await swReg.showNotification(title || 'Variety Momo', {
+        body: body || '',
+        icon: icon || `${origin}/pwa-192x192.png`,
+        badge: badge || `${origin}/favicon-96x96.png`,
+        tag: notifTag,
+        renotify: true,
+        requireInteraction: true,
+        vibrate: [200, 100, 200],
+        data: {
+          url: url || data?.click_action || data?.url || '/',
+          click_action: url || data?.click_action || data?.url || '/',
+          order_id: data?.order_id || '',
+          order_number: data?.order_number || '',
+          tracking_token: data?.tracking_token || ''
+        }
+      });
+      return true;
+    }
+  } catch (err) {
+    console.warn('[FCM] Failed to show foreground device notification via SW:', err);
+  }
+  return false;
+}
+
+// Global Foreground Push Listener (Ensures Android top bar notification even when app is open)
+export function setupGlobalForegroundPushListener() {
+  if (typeof window === 'undefined' || !app) return () => {};
+
+  return onForegroundMessage(async (payload) => {
+    console.log('[FCM-GLOBAL] Handling foreground push notification:', payload);
+
+    const title = payload.notification?.title || payload.data?.title || 'Variety Momo';
+    const body = payload.notification?.body || payload.data?.body || 'Order status update';
+    const clickUrl = payload.data?.click_action || payload.data?.url || payload.fcmOptions?.link || '/';
+    const tag = payload.notification?.tag || payload.data?.tag || (payload.data?.order_number ? `order-${payload.data.order_number}` : `momo-${Date.now()}`);
+
+    // 1. Show real system notification in Android top status bar
+    await showDeviceNotification({
+      title,
+      body,
+      tag,
+      data: payload.data,
+      url: clickUrl
+    });
+
+    // 2. Dispatch a CustomEvent for in-page UI components (OwnerDashboard, OrderTrackingModal)
+    window.dispatchEvent(new CustomEvent('variety_momo_fcm_message', { detail: payload }));
+  });
+}
+
 // Register subscription in Supabase database
 export async function registerPushSubscriptionInDatabase({
   userType,
@@ -214,11 +276,12 @@ export async function triggerPushNotification({
   eventType = null,
   orderId = null,
   orderNumber = null,
+  specificToken = null, // Direct device targeting for diagnostics/tests
   url = '/'
 }) {
   try {
-    // Respect owner notification preferences if configured
-    if (recipientType === 'OWNER' && eventType && typeof window !== 'undefined') {
+    // Respect owner notification preferences if configured (unless direct test)
+    if (recipientType === 'OWNER' && eventType && !specificToken && typeof window !== 'undefined') {
       try {
         const stored = localStorage.getItem('variety_momo_owner_notif_prefs');
         if (stored) {
@@ -234,18 +297,24 @@ export async function triggerPushNotification({
       }
     }
 
-    // 1. Fetch active target tokens from database RPC
-    const { data: tokensData, error: tokensError } = await supabase.rpc('get_push_tokens_for_event', {
-      p_recipient_type: recipientType,
-      p_order_id: orderId
-    });
+    let tokens = [];
+    if (specificToken) {
+      tokens = [specificToken];
+    } else {
+      // 1. Fetch active target tokens from database RPC
+      const { data: tokensData, error: tokensError } = await supabase.rpc('get_push_tokens_for_event', {
+        p_recipient_type: recipientType,
+        p_order_id: orderId
+      });
 
-    if (tokensError) {
-      console.error('[FCM] Error fetching push tokens:', tokensError);
-      return { success: false, error: tokensError.message };
+      if (tokensError) {
+        console.error('[FCM] Error fetching push tokens:', tokensError);
+        return { success: false, error: tokensError.message };
+      }
+
+      tokens = (tokensData || []).map((t) => t.fcm_token).filter(Boolean);
     }
 
-    const tokens = (tokensData || []).map((t) => t.fcm_token).filter(Boolean);
     if (tokens.length === 0) {
       console.log(`[FCM] No active push subscriptions found for ${recipientType}`);
       return { success: true, sentCount: 0, total: 0, message: `No active subscriptions for ${recipientType}` };
@@ -257,7 +326,12 @@ export async function triggerPushNotification({
       import.meta.env.VITE_SUPABASE_ANON_KEY ||
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvc2Nlb2dxaHdramNrc215cmpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxMzU0MjAsImV4cCI6MjEwNDcxMTQyMH0.20vQCjfZjeHtzFacGEkaY3_F8IudfPADtzBr1fVsji8';
 
-    const eventKey = orderId ? `${orderId}:${recipientType}:${eventType || title}` : null;
+    const isTest = specificToken !== null || title.toLowerCase().includes('test');
+    const eventKey = isTest
+      ? `test_${Date.now()}`
+      : (orderId ? `${orderId}:${recipientType}:${eventType || title}` : null);
+
+    const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://variety-momo.firebaseapp.com';
 
     const res = await fetch(edgeFunctionUrl, {
       method: 'POST',
@@ -275,8 +349,11 @@ export async function triggerPushNotification({
           order_id: orderId || '',
           order_number: orderNumber || '',
           click_action: url,
+          url,
           recipient_type: recipientType,
-          event_key: eventKey || ''
+          event_key: eventKey || '',
+          is_test: isTest,
+          site_url: siteUrl
         }
       })
     });
@@ -305,12 +382,13 @@ export async function triggerPushNotification({
 }
 
 // Send Owner Test Notification (Safe test path for Owner verification)
-export async function sendTestOwnerNotification() {
+export async function sendTestOwnerNotification(specificToken = null) {
   const timeStr = new Date().toLocaleTimeString('en-IN', { hour12: true });
   return await triggerPushNotification({
-    title: '🔔 Variety Momo Test Notification',
-    body: `Push notification delivery verified successfully at ${timeStr}.`,
+    title: '🔔 Variety Momo',
+    body: `FCM Test Notification: This is a test push notification delivered at ${timeStr}.`,
     recipientType: 'OWNER',
+    specificToken,
     url: '/owner-dashboard'
   });
 }

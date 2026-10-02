@@ -26,6 +26,7 @@ import PwaInstallPrompt from './components/PwaInstallPrompt';
 import PwaManualInstallModal from './components/PwaManualInstallModal';
 import { PwaProvider } from './context/PwaContext';
 import ErrorBoundary from './components/ErrorBoundary';
+import { setupGlobalForegroundPushListener } from './lib/firebase';
 
 function WhatsAppFloatingIcon({ className = 'w-5 h-5' }) {
   return (
@@ -360,6 +361,14 @@ export default function App() {
       navigator.serviceWorker.addEventListener('message', handleSwMessage);
       return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage);
     }
+  }, []);
+
+  // Initialize unified foreground push listener for real-time device notifications & UI sync
+  useEffect(() => {
+    const cleanupForeground = setupGlobalForegroundPushListener();
+    return () => {
+      if (typeof cleanupForeground === 'function') cleanupForeground();
+    };
   }, []);
 
   const navigate = React.useCallback((route, replace = false) => {

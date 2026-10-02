@@ -163,24 +163,30 @@ Deno.serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-    // Construct unique event key for idempotency
-    const eventKey =
-      data?.event_key ||
-      (data?.notification_id
-        ? `notif_${data.notification_id}`
-        : data?.order_id
-        ? `${data.order_id}:${data?.recipient_type || 'ALL'}:${title}`
-        : null);
+    // Construct unique event key for idempotency (allow test notifications to send every time)
+    const isTest = data?.is_test === true || title.toLowerCase().includes('test');
+    const eventKey = isTest
+      ? `test_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
+      : (data?.event_key ||
+        (data?.notification_id
+          ? `notif_${data.notification_id}`
+          : data?.order_id
+          ? `${data.order_id}:${data?.recipient_type || 'ALL'}:${title}`
+          : null));
 
     const notifTag = data?.order_number
       ? `order-${data.order_number}`
       : data?.notification_id
       ? `notif-${data.notification_id}`
-      : (eventKey || 'variety-momo-alert');
+      : (isTest ? `test-${Date.now()}` : (eventKey || 'variety-momo-alert'));
+
+    const appOrigin = data?.site_url || data?.origin || "https://variety-momo.firebaseapp.com";
+    const iconUrl = `${appOrigin}/pwa-192x192.png`;
+    const badgeUrl = `${appOrigin}/favicon-96x96.png`;
 
     for (const fcmToken of targetTokens) {
-      // 1. Check idempotency: if this event was already delivered to this token, skip
-      if (supabaseUrl && supabaseServiceKey && eventKey) {
+      // 1. Check idempotency: if this event was already delivered to this token, skip (unless test)
+      if (!isTest && supabaseUrl && supabaseServiceKey && eventKey) {
         try {
           const checkRes = await fetch(
             `${supabaseUrl}/rest/v1/notification_deliveries?event_key=eq.${encodeURIComponent(eventKey)}&fcm_token=eq.${encodeURIComponent(fcmToken)}&select=id`,
@@ -219,20 +225,27 @@ Deno.serve(async (req: Request) => {
           },
           webpush: {
             headers: {
-              Urgency: "high"
+              Urgency: "high",
+              TTL: "86400"
             },
             notification: {
-              icon: "/variety-momo-logo.jpg",
-              badge: "/favicon-96x96.png",
+              title,
+              body,
+              icon: iconUrl,
+              badge: badgeUrl,
               tag: notifTag,
-              renotify: false,
+              renotify: true,
               requireInteraction: true,
               vibrate: [200, 100, 200],
               data: {
                 click_action: url || data?.click_action || "/",
+                url: url || data?.click_action || "/",
                 order_id: data?.order_id || "",
                 order_number: data?.order_number || "",
-                notification_id: data?.notification_id || ""
+                tracking_token: data?.tracking_token || "",
+                notification_id: data?.notification_id || "",
+                event_key: eventKey || "",
+                recipient_type: data?.recipient_type || ""
               }
             },
             fcm_options: {
@@ -250,14 +263,18 @@ Deno.serve(async (req: Request) => {
             }
           },
           data: {
-            title,
-            body,
-            click_action: url || data?.click_action || "/",
-            order_id: data?.order_id || "",
-            order_number: data?.order_number || "",
-            notification_id: data?.notification_id || "",
-            event_key: eventKey || "",
-            timestamp: Date.now().toString()
+            title: String(title),
+            body: String(body),
+            click_action: String(url || data?.click_action || "/"),
+            url: String(url || data?.click_action || "/"),
+            order_id: String(data?.order_id || ""),
+            order_number: String(data?.order_number || ""),
+            tracking_token: String(data?.tracking_token || ""),
+            notification_id: String(data?.notification_id || ""),
+            event_key: String(eventKey || ""),
+            recipient_type: String(data?.recipient_type || ""),
+            tag: String(notifTag),
+            timestamp: String(Date.now())
           }
         }
       };

@@ -7,8 +7,9 @@ CREATE TABLE IF NOT EXISTS public.notification_deliveries (
   event_key TEXT NOT NULL,
   fcm_token TEXT NOT NULL,
   notification_id UUID REFERENCES public.notifications(id) ON DELETE CASCADE,
-  delivered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  recipient_type TEXT NOT NULL DEFAULT 'UNKNOWN',
   status TEXT NOT NULL DEFAULT 'DELIVERED',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT uq_notification_deliveries UNIQUE(event_key, fcm_token)
 );
 
@@ -31,7 +32,7 @@ CREATE INDEX IF NOT EXISTS idx_notification_deliveries_event_token
   ON public.notification_deliveries(event_key, fcm_token);
 
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_created 
-  ON public.notification_deliveries(delivered_at DESC);
+  ON public.notification_deliveries(created_at DESC);
 
 -- 2. RPC to register customer orders push tokens
 CREATE OR REPLACE FUNCTION public.register_customer_orders_push(
@@ -45,7 +46,6 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_sub_id UUID;
   v_order RECORD;
   v_linked_count INT := 0;
 BEGIN
@@ -53,34 +53,64 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'Token is required');
   END IF;
 
-  INSERT INTO public.push_subscriptions (fcm_token, user_type, is_active, device_info, updated_at)
-  VALUES (p_fcm_token, 'CUSTOMER', TRUE, COALESCE(p_device_info, '{}'::jsonb), NOW())
+  INSERT INTO public.push_subscriptions (fcm_token, user_type, is_active, device_id, platform, updated_at)
+  VALUES (p_fcm_token, 'CUSTOMER', TRUE, COALESCE((p_device_info->>'userAgent')::text, 'Customer Device'), 'WEB', NOW())
   ON CONFLICT (fcm_token) 
   DO UPDATE SET
     is_active = TRUE,
-    device_info = COALESCE(p_device_info, push_subscriptions.device_info),
-    updated_at = NOW()
-  RETURNING id INTO v_sub_id;
+    device_id = COALESCE((p_device_info->>'userAgent')::text, push_subscriptions.device_id),
+    updated_at = NOW();
 
   IF p_tracking_tokens IS NOT NULL AND array_length(p_tracking_tokens, 1) > 0 THEN
     FOR v_order IN 
       SELECT id FROM public.orders 
       WHERE tracking_token = ANY(p_tracking_tokens)
     LOOP
-      INSERT INTO public.customer_push_orders (subscription_id, order_id)
-      VALUES (v_sub_id, v_order.id)
-      ON CONFLICT (subscription_id, order_id) DO NOTHING;
+      INSERT INTO public.customer_push_orders (fcm_token, order_id)
+      VALUES (p_fcm_token, v_order.id)
+      ON CONFLICT (fcm_token, order_id) DO NOTHING;
       v_linked_count := v_linked_count + 1;
     END LOOP;
   END IF;
 
-  RETURN jsonb_build_object('success', true, 'subscription_id', v_sub_id, 'linked_orders', v_linked_count);
+  RETURN jsonb_build_object('success', true, 'linked_orders', v_linked_count);
 END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.register_customer_orders_push(TEXT, TEXT[], JSONB) TO anon, authenticated, service_role;
 
--- 3. Update handle_notification_fcm_push trigger function
+-- 3. Update get_push_tokens_for_event RPC
+CREATE OR REPLACE FUNCTION public.get_push_tokens_for_event(
+  p_recipient_type text, 
+  p_order_id uuid DEFAULT NULL::uuid
+)
+RETURNS TABLE(fcm_token text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+    IF p_recipient_type = 'OWNER' THEN
+        RETURN QUERY
+        SELECT DISTINCT ps.fcm_token
+        FROM public.push_subscriptions ps
+        WHERE ps.user_type = 'OWNER'
+          AND ps.is_active = true;
+
+    ELSIF p_recipient_type = 'CUSTOMER' AND p_order_id IS NOT NULL THEN
+        RETURN QUERY
+        SELECT DISTINCT cpo.fcm_token
+        FROM public.customer_push_orders cpo
+        JOIN public.push_subscriptions ps ON ps.fcm_token = cpo.fcm_token
+        WHERE ps.is_active = true
+          AND cpo.order_id = p_order_id;
+    END IF;
+END;
+$function$;
+
+GRANT EXECUTE ON FUNCTION public.get_push_tokens_for_event(text, uuid) TO anon, authenticated, service_role;
+
+-- 4. Update handle_notification_fcm_push trigger function
 CREATE OR REPLACE FUNCTION public.handle_notification_fcm_push()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -142,9 +172,9 @@ BEGIN
       );
     v_action_url := '/owner/orders';
   ELSIF NEW.recipient_type = 'CUSTOMER' AND NEW.order_id IS NOT NULL THEN
-    SELECT ARRAY_AGG(DISTINCT ps.fcm_token) INTO v_tokens
+    SELECT ARRAY_AGG(DISTINCT cpo.fcm_token) INTO v_tokens
     FROM public.customer_push_orders cpo
-    JOIN public.push_subscriptions ps ON ps.id = cpo.subscription_id
+    JOIN public.push_subscriptions ps ON ps.fcm_token = cpo.fcm_token
     WHERE cpo.order_id = NEW.order_id
       AND ps.is_active = TRUE
       AND NOT EXISTS (
@@ -163,14 +193,14 @@ BEGIN
   END IF;
 
   FOREACH v_target_token IN ARRAY v_tokens LOOP
-    INSERT INTO public.notification_deliveries (event_key, fcm_token, notification_id, status)
-    VALUES (v_event_key, v_target_token, NEW.id, 'DISPATCHED')
+    INSERT INTO public.notification_deliveries (event_key, fcm_token, notification_id, recipient_type, status)
+    VALUES (v_event_key, v_target_token, NEW.id, NEW.recipient_type, 'DISPATCHED')
     ON CONFLICT (event_key, fcm_token) DO NOTHING;
   END LOOP;
 
   v_payload := jsonb_build_object(
     'title', NEW.title,
-    'body', NEW.message,
+    'body', NEW.body,
     'tokens', to_jsonb(v_tokens),
     'event_key', v_event_key,
     'data', jsonb_build_object(
@@ -181,6 +211,7 @@ BEGIN
       'type', COALESCE(NEW.type, 'GENERAL'),
       'recipient_type', NEW.recipient_type,
       'url', COALESCE(v_action_url, '/'),
+      'click_action', COALESCE(v_action_url, '/'),
       'event_key', v_event_key
     )
   );
