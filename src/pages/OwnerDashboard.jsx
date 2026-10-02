@@ -114,7 +114,7 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
         if (!session || !session.profile || session.profile.role !== 'OWNER') {
           // Strictly redirect non-owner away
           if (onNavigate) {
-            onNavigate('owner-login');
+            onNavigate('owner-login', true);
           } else {
             window.location.pathname = '/owner-login';
           }
@@ -125,7 +125,7 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
       } catch (err) {
         console.error('Owner auth verification error:', err);
         if (onNavigate) {
-          onNavigate('owner-login');
+          onNavigate('owner-login', true);
         } else {
           window.location.pathname = '/owner-login';
         }

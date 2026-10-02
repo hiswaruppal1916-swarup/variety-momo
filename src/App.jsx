@@ -362,11 +362,17 @@ export default function App() {
     }
   }, []);
 
-  const navigate = React.useCallback((route) => {
+  const navigate = React.useCallback((route, replace = false) => {
     let url = '/';
     if (route === 'owner-dashboard') url = '/owner-dashboard';
     else if (route === 'owner-login') url = '/owner-login';
-    window.history.pushState({}, '', url);
+
+    // If currently on a modal state (like hamburger drawer) or explicitly asked to replace:
+    if (replace || window.history.state?.varietyModal || window.history.state?.varietyOwnerModal) {
+      window.history.replaceState({}, '', url);
+    } else {
+      window.history.pushState({}, '', url);
+    }
     setCurrentRoute(route);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);

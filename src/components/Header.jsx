@@ -69,23 +69,41 @@ export default function Header({ onNavigate }) {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [isHamburgerOpen]);
 
-  const handleOwnerClick = (e) => {
-    e.preventDefault();
-    handleCloseHamburger();
-    if (onNavigate) {
-      onNavigate('owner-login');
-    } else {
-      window.history.pushState({}, '', '/owner-login');
-      window.dispatchEvent(new PopStateEvent('popstate'));
+  const closeDrawerAction = (callback) => {
+    setIsHamburgerOpen(false);
+    if (window.history.state?.varietyModal === 'hamburger-menu') {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    if (callback) {
+      setTimeout(callback, 50);
     }
   };
 
+  const handleOwnerClick = (e) => {
+    e.preventDefault();
+    closeDrawerAction(() => {
+      if (onNavigate) {
+        onNavigate('owner-dashboard');
+      } else {
+        window.history.pushState({}, '', '/owner-dashboard');
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      }
+    });
+  };
+
   const scrollToSection = (id) => {
-    handleCloseHamburger();
-    const el = document.getElementById(id);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
+    closeDrawerAction(() => {
+      const el = document.getElementById(id);
+      if (el) {
+        const headerOffset = 80;
+        const elementPosition = el.getBoundingClientRect().top;
+        const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+        window.scrollTo({
+          top: Math.max(0, offsetPosition),
+          behavior: 'smooth'
+        });
+      }
+    });
   };
 
   return (
@@ -294,7 +312,7 @@ export default function Header({ onNavigate }) {
                   Manage live kitchen orders, verify payments, update menu & table QR codes.
                 </p>
                 <a
-                  href="/owner-login"
+                  href="/owner-dashboard"
                   onClick={handleOwnerClick}
                   className="mt-3 w-full py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95"
                 >
@@ -316,11 +334,8 @@ export default function Header({ onNavigate }) {
                     </p>
                   </div>
                   <button
-                    onClick={() => {
-                      handleCloseHamburger();
-                      installApp();
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shrink-0 transition-colors shadow-xs"
+                    onClick={() => closeDrawerAction(installApp)}
+                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shrink-0 transition-colors shadow-xs cursor-pointer active:scale-95"
                   >
                     Install
                   </button>
@@ -335,7 +350,7 @@ export default function Header({ onNavigate }) {
 
                 <button
                   onClick={() => scrollToSection('menu')}
-                  className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-stone-100 text-stone-800 text-xs font-bold transition-colors text-left"
+                  className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-stone-100 text-stone-800 text-xs font-bold transition-all text-left cursor-pointer active:scale-98"
                 >
                   <div className="flex items-center gap-2.5">
                     <Utensils className="w-4 h-4 text-brand-600" />
@@ -345,11 +360,8 @@ export default function Header({ onNavigate }) {
                 </button>
 
                 <button
-                  onClick={() => {
-                    handleCloseHamburger();
-                    openOrderTracking();
-                  }}
-                  className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-stone-100 text-stone-800 text-xs font-bold transition-colors text-left"
+                  onClick={() => closeDrawerAction(openOrderTracking)}
+                  className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-stone-100 text-stone-800 text-xs font-bold transition-all text-left cursor-pointer active:scale-98"
                 >
                   <div className="flex items-center gap-2.5">
                     <Clock className="w-4 h-4 text-amber-600" />
@@ -360,7 +372,7 @@ export default function Header({ onNavigate }) {
 
                 <button
                   onClick={() => scrollToSection('offers')}
-                  className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-stone-100 text-stone-800 text-xs font-bold transition-colors text-left"
+                  className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-stone-100 text-stone-800 text-xs font-bold transition-all text-left cursor-pointer active:scale-98"
                 >
                   <div className="flex items-center gap-2.5">
                     <Tag className="w-4 h-4 text-emerald-600" />
@@ -371,7 +383,7 @@ export default function Header({ onNavigate }) {
 
                 <button
                   onClick={() => scrollToSection('gallery')}
-                  className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-stone-100 text-stone-800 text-xs font-bold transition-colors text-left"
+                  className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-stone-100 text-stone-800 text-xs font-bold transition-all text-left cursor-pointer active:scale-98"
                 >
                   <div className="flex items-center gap-2.5">
                     <ImageIcon className="w-4 h-4 text-purple-600" />
@@ -382,7 +394,7 @@ export default function Header({ onNavigate }) {
 
                 <button
                   onClick={() => scrollToSection('reviews')}
-                  className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-stone-100 text-stone-800 text-xs font-bold transition-colors text-left"
+                  className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-stone-100 text-stone-800 text-xs font-bold transition-all text-left cursor-pointer active:scale-98"
                 >
                   <div className="flex items-center gap-2.5">
                     <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
@@ -392,11 +404,8 @@ export default function Header({ onNavigate }) {
                 </button>
 
                 <button
-                  onClick={() => {
-                    handleCloseHamburger();
-                    openCustomerNotif();
-                  }}
-                  className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-stone-100 text-stone-800 text-xs font-bold transition-colors text-left"
+                  onClick={() => closeDrawerAction(openCustomerNotif)}
+                  className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-stone-100 text-stone-800 text-xs font-bold transition-all text-left cursor-pointer active:scale-98"
                 >
                   <div className="flex items-center gap-2.5">
                     <Bell className="w-4 h-4 text-brand-600" />

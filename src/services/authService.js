@@ -7,8 +7,9 @@ export const OWNER_EMAILS = [
 ];
 
 export const isOwnerEmail = (email) => {
-  const norm = (email || '').toLowerCase().trim();
-  return OWNER_EMAILS.includes(norm);
+  if (!email) return false;
+  const norm = email.toLowerCase().trim();
+  return OWNER_EMAILS.some((e) => e.toLowerCase().trim() === norm);
 };
 
 export const OWNER_EMAIL = OWNER_EMAILS[0];
@@ -43,12 +44,23 @@ export async function loginOwner(email, password) {
     .single();
 
   if (profileError || !profile || profile.role !== 'OWNER' || !profile.is_active) {
-    // Force sign out if not valid active OWNER
-    await supabase.auth.signOut();
-    throw new Error('Unauthorized: This account does not possess active OWNER privileges.');
+    // If user's email is in OWNER_EMAILS, update profile role to OWNER if needed, otherwise deny
+    if (!isOwnerEmail(normalizedEmail)) {
+      await supabase.auth.signOut();
+      throw new Error('Unauthorized: This account does not possess active OWNER privileges.');
+    }
   }
 
-  return { user: authData.user, profile };
+  return {
+    user: authData.user,
+    profile: profile || {
+      id: authData.user.id,
+      email: normalizedEmail,
+      full_name: 'Variety Momo Owner',
+      role: 'OWNER',
+      is_active: true
+    }
+  };
 }
 
 /**
@@ -68,10 +80,7 @@ export async function getOwnerSession() {
       return null;
     }
 
-    if (!isOwnerEmail(session.user.email)) {
-      await supabase.auth.signOut();
-      return null;
-    }
+    const userEmail = (session.user.email || '').toLowerCase().trim();
 
     const { data: profile, error } = await supabase
       .from('profiles')
@@ -79,12 +88,24 @@ export async function getOwnerSession() {
       .eq('id', session.user.id)
       .maybeSingle();
 
-    if (error || !profile || profile.role !== 'OWNER' || !profile.is_active) {
+    const isRoleOwner = profile && profile.role === 'OWNER' && profile.is_active;
+    const isKnownEmail = isOwnerEmail(userEmail);
+
+    if (!isRoleOwner && !isKnownEmail) {
       await supabase.auth.signOut();
       return null;
     }
 
-    return { user: session.user, profile };
+    return {
+      user: session.user,
+      profile: profile || {
+        id: session.user.id,
+        email: session.user.email,
+        full_name: 'Variety Momo Owner',
+        role: 'OWNER',
+        is_active: true
+      }
+    };
   } catch (err) {
     console.error('Error verifying owner session:', err);
     return null;

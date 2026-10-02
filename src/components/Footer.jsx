@@ -90,11 +90,11 @@ export default function Footer({ onNavigate }) {
               </button>
             )}
             <a
-              href="/owner-login"
+              href="/owner-dashboard"
               onClick={(e) => {
                 if (onNavigate) {
                   e.preventDefault();
-                  onNavigate('owner-login');
+                  onNavigate('owner-dashboard');
                 }
               }}
               className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-stone-900 hover:bg-stone-800 text-amber-400 hover:text-amber-300 border border-stone-800 transition-colors text-xs font-semibold"
