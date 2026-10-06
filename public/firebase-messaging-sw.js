@@ -7,7 +7,7 @@
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
-const CACHE_NAME = 'variety-momo-v6';
+const CACHE_NAME = 'variety-momo-v7';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -52,20 +52,13 @@ if (messaging) {
   messaging.onBackgroundMessage((payload) => {
     console.log('[FCM-SW] Received background message:', payload);
 
-    // If payload.notification is provided, FCM Web SDK & browser automatically displays it.
-    // Calling showNotification here would cause duplicate notifications.
-    if (payload.notification && payload.notification.title) {
-      console.log('[FCM-SW] Notification payload handled by Firebase SDK.');
-      return;
-    }
-
-    // Display manually if this was a data-only FCM push message or missing notification title
-    const title = payload.data?.title || payload.notification?.title || 'Variety Momo';
-    const body = payload.data?.body || payload.notification?.body || 'You have an update on your order.';
+    const title = payload.notification?.title || payload.data?.title || 'Variety Momo';
+    const body = payload.notification?.body || payload.data?.body || 'You have an update on your order.';
     const clickAction =
       payload.data?.click_action ||
       payload.data?.url ||
       payload.data?.link ||
+      payload.fcmOptions?.link ||
       '/';
     const orderNumber = payload.data?.order_number || '';
     const notifTag = orderNumber ? `order-${orderNumber}` : (payload.data?.notification_id ? `notif-${payload.data.notification_id}` : 'variety-momo-alert');
@@ -76,7 +69,7 @@ if (messaging) {
       icon: `${origin}/pwa-192x192.png`,
       badge: `${origin}/favicon-96x96.png`,
       tag: notifTag,
-      renotify: true,
+      renotify: false,
       requireInteraction: true,
       vibrate: [200, 100, 200],
       data: {
@@ -93,7 +86,16 @@ if (messaging) {
       ]
     };
 
-    return self.registration.showNotification(title, notificationOptions);
+    // Check if notification with this tag is already visible.
+    // If browser/SDK already displayed it, skip to avoid duplicate.
+    // If not displayed yet, display it now so Android system notification always appears.
+    return self.registration.getNotifications({ tag: notifTag }).then((existing) => {
+      if (existing && existing.length > 0) {
+        console.log('[FCM-SW] Notification already displayed with tag:', notifTag);
+        return;
+      }
+      return self.registration.showNotification(title, notificationOptions);
+    });
   });
 }
 

@@ -180,7 +180,7 @@ Deno.serve(async (req: Request) => {
       ? `notif-${data.notification_id}`
       : (isTest ? `test-${Date.now()}` : (eventKey || 'variety-momo-alert'));
 
-    const appOrigin = data?.site_url || data?.origin || "https://variety-momo.firebaseapp.com";
+    const appOrigin = data?.site_url || data?.origin || "https://variety-momo-jq8j.vercel.app";
     const iconUrl = `${appOrigin}/pwa-192x192.png`;
     const badgeUrl = `${appOrigin}/favicon-96x96.png`;
 
@@ -189,7 +189,7 @@ Deno.serve(async (req: Request) => {
       if (!isTest && supabaseUrl && supabaseServiceKey && eventKey) {
         try {
           const checkRes = await fetch(
-            `${supabaseUrl}/rest/v1/notification_deliveries?event_key=eq.${encodeURIComponent(eventKey)}&fcm_token=eq.${encodeURIComponent(fcmToken)}&select=id`,
+            `${supabaseUrl}/rest/v1/notification_deliveries?event_key=eq.${encodeURIComponent(eventKey)}&fcm_token=eq.${encodeURIComponent(fcmToken)}&status=eq.SENT&select=id`,
             {
               headers: {
                 "apikey": supabaseServiceKey,
@@ -235,7 +235,7 @@ Deno.serve(async (req: Request) => {
               badge: badgeUrl,
               tag: notifTag,
               renotify: true,
-              requireInteraction: true,
+              require_interaction: true,
               vibrate: [200, 100, 200],
               data: {
                 click_action: url || data?.click_action || "/",
