@@ -181,7 +181,7 @@ Deno.serve(async (req: Request) => {
       : (isTest ? `test-${Date.now()}` : (eventKey || 'variety-momo-alert'));
 
     const appOrigin = data?.site_url || data?.origin || "https://variety-momo-jq8j.vercel.app";
-    const iconUrl = `${appOrigin}/pwa-192x192.png`;
+    const iconUrl = `${appOrigin}/variety-momo-logo.jpg`;
     const badgeUrl = `${appOrigin}/favicon-96x96.png`;
 
     for (const fcmToken of targetTokens) {
