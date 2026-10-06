@@ -607,3 +607,461 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.update_order_status(UUID, TEXT, TEXT) TO authenticated;
+
+-- 6. Ensure create_customer_order protects OWNER subscriptions from being downgraded or assigned order_id
+CREATE OR REPLACE FUNCTION public.create_customer_order(
+    p_order_type text,
+    p_customer_name text,
+    p_customer_phone text,
+    p_items jsonb,
+    p_table_token text DEFAULT NULL::text,
+    p_delivery_address jsonb DEFAULT NULL::jsonb,
+    p_payment_reference text DEFAULT NULL::text,
+    p_special_instructions text DEFAULT NULL::text,
+    p_fcm_token text DEFAULT NULL::text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions
+AS $$
+DECLARE
+    v_clean_order_type TEXT;
+    v_settings RECORD;
+    v_item JSONB;
+    v_menu_item RECORD;
+    v_item_id UUID;
+    v_raw_item_id TEXT;
+    v_qty INTEGER;
+    v_line_total NUMERIC(10,2);
+    v_subtotal NUMERIC(10,2) := 0;
+    v_delivery_charge NUMERIC(10,2) := 0;
+    v_grand_total NUMERIC(10,2) := 0;
+    v_advance_pct NUMERIC(5,2) := 0;
+    v_advance_amount NUMERIC(10,2) := 0;
+    v_cod_amount NUMERIC(10,2) := 0;
+    v_table RECORD;
+    v_table_id UUID := NULL;
+    v_table_number TEXT := NULL;
+    v_address_id UUID := NULL;
+    v_zone_id UUID := NULL;
+    v_zone_name TEXT := NULL;
+    v_order_status TEXT;
+    v_payment_status TEXT;
+    v_order_id UUID;
+    v_order_number TEXT;
+    v_tracking_token TEXT;
+    v_verified_items JSONB := '[]'::jsonb;
+    v_clean_table_token TEXT;
+    v_numeric_table_token TEXT;
+    v_clean_fcm TEXT;
+BEGIN
+    -- Validate Customer Inputs
+    IF p_customer_name IS NULL OR length(trim(p_customer_name)) < 2 THEN
+        RAISE EXCEPTION 'Customer name must be at least 2 characters.';
+    END IF;
+
+    IF p_customer_phone IS NULL OR length(trim(p_customer_phone)) < 10 THEN
+        RAISE EXCEPTION 'A valid 10-digit phone number is required.';
+    END IF;
+
+    -- Validate Order Type
+    v_clean_order_type := upper(trim(p_order_type));
+    IF v_clean_order_type NOT IN ('DINE_IN', 'HOME_DELIVERY') THEN
+        RAISE EXCEPTION 'Invalid order type. Must be DINE_IN or HOME_DELIVERY.';
+    END IF;
+
+    -- Validate Items Non-Empty
+    IF p_items IS NULL OR jsonb_array_length(p_items) = 0 THEN
+        RAISE EXCEPTION 'Cart is empty. Please select food items.';
+    END IF;
+
+    -- Fetch Restaurant Settings
+    SELECT * INTO v_settings FROM public.restaurant_settings LIMIT 1;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Restaurant settings configuration is missing.';
+    END IF;
+
+    -- Loop and Re-verify every menu item and its price server-side
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items)
+    LOOP
+        v_raw_item_id := trim(COALESCE(v_item->>'menu_item_id', ''));
+        IF v_raw_item_id = '' THEN
+            RAISE EXCEPTION 'Missing menu item identifier.';
+        END IF;
+
+        BEGIN
+            v_item_id := v_raw_item_id::uuid;
+            SELECT id, name, price, is_available
+            INTO v_menu_item
+            FROM public.menu_items
+            WHERE id = v_item_id;
+        EXCEPTION WHEN OTHERS THEN
+            SELECT id, name, price, is_available
+            INTO v_menu_item
+            FROM public.menu_items
+            WHERE slug = v_raw_item_id;
+        END;
+
+        IF v_menu_item IS NULL OR v_menu_item.id IS NULL THEN
+            SELECT id, name, price, is_available
+            INTO v_menu_item
+            FROM public.menu_items
+            WHERE slug = v_raw_item_id;
+        END IF;
+
+        IF v_menu_item IS NULL OR v_menu_item.id IS NULL OR v_menu_item.is_available = false THEN
+            RAISE EXCEPTION 'Sorry, "%" is currently unavailable. Please update your cart.', 
+                COALESCE(v_menu_item.name, 'Selected dish');
+        END IF;
+
+        v_qty := COALESCE((v_item->>'quantity')::int, 0);
+        IF v_qty <= 0 THEN
+            RAISE EXCEPTION 'Item quantity must be at least 1.';
+        END IF;
+
+        v_line_total := ROUND(v_menu_item.price * v_qty, 2);
+        v_subtotal := v_subtotal + v_line_total;
+
+        -- Store verified snapshot item
+        v_verified_items := v_verified_items || jsonb_build_object(
+            'menu_item_id', v_menu_item.id,
+            'item_name_snapshot', v_menu_item.name,
+            'unit_price_snapshot', v_menu_item.price,
+            'quantity', v_qty,
+            'line_total', v_line_total
+        );
+    END LOOP;
+
+    -- Order Type Specific Logic
+    IF v_clean_order_type = 'DINE_IN' THEN
+        IF v_settings.dine_in_enabled = false THEN
+            RAISE EXCEPTION 'Dine-in service is currently disabled.';
+        END IF;
+
+        IF p_table_token IS NULL OR trim(p_table_token) = '' THEN
+            RAISE EXCEPTION 'Invalid or inactive table QR.';
+        END IF;
+
+        v_clean_table_token := trim(p_table_token);
+        v_numeric_table_token := regexp_replace(v_clean_table_token, '[^0-9]', '', 'g');
+
+        SELECT id, table_number, is_active
+        INTO v_table
+        FROM public.tables
+        WHERE is_active = true
+          AND (
+            qr_token = v_clean_table_token
+            OR UPPER(table_number) = UPPER(v_clean_table_token)
+            OR (
+                v_numeric_table_token <> '' 
+                AND ltrim(regexp_replace(table_number, '[^0-9]', '', 'g'), '0') = ltrim(v_numeric_table_token, '0')
+            )
+          )
+        ORDER BY id
+        LIMIT 1;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Invalid or inactive table QR.';
+        END IF;
+
+        v_table_id := v_table.id;
+        v_table_number := v_table.table_number;
+        v_delivery_charge := 0.00;
+        v_advance_pct := 0.00;
+        v_advance_amount := 0.00;
+        v_cod_amount := 0.00;
+        v_grand_total := v_subtotal;
+        v_payment_status := 'NOT_REQUIRED';
+        v_order_status := 'PENDING';
+
+    ELSIF v_clean_order_type = 'HOME_DELIVERY' THEN
+        IF v_settings.home_delivery_enabled = false THEN
+            RAISE EXCEPTION 'Home delivery service is currently disabled.';
+        END IF;
+
+        IF p_delivery_address IS NULL THEN
+            RAISE EXCEPTION 'Delivery address is required for home delivery orders.';
+        END IF;
+
+        BEGIN
+            v_zone_id := (p_delivery_address->>'delivery_zone_id')::uuid;
+        EXCEPTION WHEN OTHERS THEN
+            v_zone_id := NULL;
+        END;
+
+        IF v_zone_id IS NULL THEN
+            RAISE EXCEPTION 'Please select an authorized delivery area in Mecheda.';
+        END IF;
+
+        SELECT id, name INTO v_zone_id, v_zone_name
+        FROM public.delivery_zones
+        WHERE id = v_zone_id AND is_active = true;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Sorry, home delivery is currently unavailable for this location.';
+        END IF;
+
+        IF p_delivery_address->>'address_line' IS NULL OR length(trim(p_delivery_address->>'address_line')) < 3 THEN
+            RAISE EXCEPTION 'Please enter your complete house or street address.';
+        END IF;
+
+        IF p_delivery_address->>'area' IS NULL OR length(trim(p_delivery_address->>'area')) < 2 THEN
+            RAISE EXCEPTION 'Please enter your area or locality.';
+        END IF;
+
+        INSERT INTO public.customer_addresses (
+            name,
+            phone,
+            address_line,
+            area,
+            landmark,
+            city,
+            pincode,
+            delivery_zone_id
+        ) VALUES (
+            trim(p_customer_name),
+            trim(p_customer_phone),
+            trim(p_delivery_address->>'address_line'),
+            trim(p_delivery_address->>'area'),
+            NULLIF(trim(p_delivery_address->>'landmark'), ''),
+            COALESCE(NULLIF(trim(p_delivery_address->>'city'), ''), 'Mecheda'),
+            COALESCE(NULLIF(trim(p_delivery_address->>'pincode'), ''), '721137'),
+            v_zone_id
+        ) RETURNING id INTO v_address_id;
+
+        v_table_id := NULL;
+        v_table_number := NULL;
+        v_delivery_charge := COALESCE(v_settings.delivery_charge, 50.00);
+        v_grand_total := v_subtotal + v_delivery_charge;
+        v_advance_pct := COALESCE(v_settings.advance_payment_percentage, 30.00);
+        v_advance_amount := ROUND((v_grand_total * v_advance_pct) / 100.00, 2);
+        v_cod_amount := v_grand_total - v_advance_amount;
+
+        IF p_payment_reference IS NOT NULL AND length(trim(p_payment_reference)) >= 3 THEN
+            v_payment_status := 'SUBMITTED';
+            v_order_status := 'PENDING';
+        ELSE
+            v_payment_status := 'PENDING';
+            v_order_status := 'AWAITING_PAYMENT';
+        END IF;
+    END IF;
+
+    -- Generate Unique Order Number & Non-guessable Tracking Token
+    v_order_number := public.generate_order_number();
+    v_tracking_token := replace(gen_random_uuid()::text, '-', '');
+
+    -- Insert into Orders table
+    INSERT INTO public.orders (
+        order_number,
+        tracking_token,
+        order_type,
+        customer_name,
+        customer_phone,
+        table_id,
+        delivery_address_id,
+        subtotal,
+        delivery_charge,
+        grand_total,
+        advance_amount,
+        cod_amount,
+        payment_reference,
+        order_status,
+        payment_status,
+        special_instructions
+    ) VALUES (
+        v_order_number,
+        v_tracking_token,
+        v_clean_order_type,
+        trim(p_customer_name),
+        trim(p_customer_phone),
+        v_table_id,
+        v_address_id,
+        v_subtotal,
+        v_delivery_charge,
+        v_grand_total,
+        v_advance_amount,
+        v_cod_amount,
+        NULLIF(trim(p_payment_reference), ''),
+        v_order_status,
+        v_payment_status,
+        NULLIF(trim(p_special_instructions), '')
+    ) RETURNING id INTO v_order_id;
+
+    -- Insert Order Items
+    FOR v_item IN SELECT * FROM jsonb_array_elements(v_verified_items)
+    LOOP
+        INSERT INTO public.order_items (
+            order_id,
+            menu_item_id,
+            item_name_snapshot,
+            unit_price_snapshot,
+            quantity,
+            line_total
+        ) VALUES (
+            v_order_id,
+            (v_item->>'menu_item_id')::uuid,
+            v_item->>'item_name_snapshot',
+            (v_item->>'unit_price_snapshot')::numeric,
+            (v_item->>'quantity')::int,
+            (v_item->>'line_total')::numeric
+        );
+    END LOOP;
+
+    -- If PhonePe reference submitted with order
+    IF v_payment_status = 'SUBMITTED' AND p_payment_reference IS NOT NULL THEN
+        INSERT INTO public.payments (
+            order_id,
+            payment_type,
+            amount,
+            payment_status,
+            customer_reference,
+            submitted_at
+        ) VALUES (
+            v_order_id,
+            'PHONEPE_QR_MANUAL',
+            v_advance_amount,
+            'SUBMITTED',
+            trim(p_payment_reference),
+            now()
+        );
+    END IF;
+
+    -- Record Status History
+    INSERT INTO public.order_status_history (
+        order_id,
+        new_status,
+        note
+    ) VALUES (
+        v_order_id,
+        v_order_status,
+        'Order created by customer via website'
+    );
+
+    -- Register Customer FCM Token IMMEDIATELY if provided, PROTECTING OWNER TOKENS
+    IF p_fcm_token IS NOT NULL AND length(trim(p_fcm_token)) >= 10 THEN
+        v_clean_fcm := trim(p_fcm_token);
+        
+        INSERT INTO public.push_subscriptions (
+            user_type,
+            order_id,
+            order_number,
+            device_id,
+            fcm_token,
+            platform,
+            is_active,
+            last_seen_at,
+            updated_at
+        ) VALUES (
+            'CUSTOMER',
+            v_order_id,
+            v_order_number,
+            'browser-' || substr(md5(v_clean_fcm), 1, 8),
+            v_clean_fcm,
+            'WEB',
+            true,
+            now(),
+            now()
+        )
+        ON CONFLICT (fcm_token) DO UPDATE
+        SET user_type = CASE WHEN public.push_subscriptions.user_type = 'OWNER' THEN 'OWNER' ELSE 'CUSTOMER' END,
+            order_id = CASE WHEN public.push_subscriptions.user_type = 'OWNER' THEN NULL ELSE v_order_id END,
+            order_number = CASE WHEN public.push_subscriptions.user_type = 'OWNER' THEN NULL ELSE v_order_number END,
+            is_active = true,
+            last_seen_at = now(),
+            updated_at = now();
+
+        INSERT INTO public.customer_push_orders (fcm_token, order_id)
+        VALUES (v_clean_fcm, v_order_id)
+        ON CONFLICT (fcm_token, order_id) DO NOTHING;
+    END IF;
+
+    -- Insert in-app Owner Notification (triggers handle_notification_fcm_push for OWNER)
+    INSERT INTO public.notifications (
+        recipient_type,
+        type,
+        title,
+        body,
+        order_id,
+        is_read
+    ) VALUES (
+        'OWNER',
+        'ORDER',
+        '🔔 New ' || CASE WHEN v_clean_order_type = 'DINE_IN' THEN 'Dine-In' ELSE 'Delivery' END || ' Order: #' || v_order_number,
+        trim(p_customer_name) || ' placed an order of ₹' || v_grand_total || ' (' || 
+        CASE WHEN v_clean_order_type = 'DINE_IN' THEN 'Table ' || v_table_number ELSE 'Delivery to ' || v_zone_name END || ').',
+        v_order_id,
+        false
+    );
+
+    -- Insert in-app Customer Notification (triggers handle_notification_fcm_push for CUSTOMER)
+    INSERT INTO public.notifications (
+        recipient_type,
+        type,
+        title,
+        body,
+        order_id,
+        is_read
+    ) VALUES (
+        'CUSTOMER',
+        'ORDER',
+        'Order Placed: #' || v_order_number,
+        'Your order has been received by Variety Momo. (' || 
+        CASE WHEN v_clean_order_type = 'DINE_IN' THEN 'Table ' || v_table_number ELSE 'Delivery to ' || v_zone_name END || ').',
+        v_order_id,
+        false
+    );
+
+    -- Return full order response
+    RETURN jsonb_build_object(
+        'success', true,
+        'order_id', v_order_id,
+        'order_number', v_order_number,
+        'tracking_token', v_tracking_token,
+        'order_type', v_clean_order_type,
+        'subtotal', v_subtotal,
+        'delivery_charge', v_delivery_charge,
+        'grand_total', v_grand_total,
+        'advance_amount', v_advance_amount,
+        'cod_amount', v_cod_amount,
+        'order_status', v_order_status,
+        'payment_status', v_payment_status,
+        'table_number', v_table_number,
+        'zone_name', v_zone_name
+    );
+END;
+$$;
+
+-- Delegate 8-param overload to canonical 9-param
+CREATE OR REPLACE FUNCTION public.create_customer_order(
+    p_order_type text,
+    p_customer_name text,
+    p_customer_phone text,
+    p_items jsonb,
+    p_table_token text DEFAULT NULL::text,
+    p_delivery_address jsonb DEFAULT NULL::jsonb,
+    p_payment_reference text DEFAULT NULL::text,
+    p_special_instructions text DEFAULT NULL::text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions
+AS $$
+BEGIN
+    RETURN public.create_customer_order(
+        p_order_type,
+        p_customer_name,
+        p_customer_phone,
+        p_items,
+        p_table_token,
+        p_delivery_address,
+        p_payment_reference,
+        p_special_instructions,
+        NULL::text
+    );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.create_customer_order(text, text, text, jsonb, text, jsonb, text, text, text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.create_customer_order(text, text, text, jsonb, text, jsonb, text, text) TO anon, authenticated;

@@ -217,7 +217,10 @@ Deno.serve(async (req: Request) => {
     }
 
     const appOrigin = data?.site_url || data?.origin || "https://variety-momo-jq8j.vercel.app";
-    const iconUrl = `${appOrigin}/variety-momo-notification-icon.png`;
+    // Section 19: Use official Variety Momo logo (/variety-momo-logo.jpg) for OWNER notifications
+    const iconUrl = recipientType === "OWNER"
+      ? `${appOrigin}/variety-momo-logo.jpg`
+      : (data?.icon || `${appOrigin}/variety-momo-notification-icon.png`);
     const badgeUrl = `${appOrigin}/variety-momo-notification-badge.png`;
 
     for (const fcmToken of targetTokens) {
@@ -306,6 +309,8 @@ Deno.serve(async (req: Request) => {
           data: {
             title: String(title),
             body: String(body),
+            icon: String(iconUrl),
+            badge: String(badgeUrl),
             click_action: String(url || data?.click_action || "/"),
             url: String(url || data?.click_action || "/"),
             order_id: String(data?.order_id || ""),

@@ -152,11 +152,15 @@ export default function SettingsTab({ onOpenPushDiagnostic }) {
         return;
       }
 
+      const lastStoredToken = localStorage.getItem('variety_momo_owner_fcm_token');
+      const isRotated = Boolean(lastStoredToken && lastStoredToken !== token);
       const saveRes = await registerPushSubscriptionInDatabase({
         userType: 'OWNER',
         fcmToken: token,
+        oldFcmToken: isRotated ? lastStoredToken : null,
         platform: 'WEB'
       });
+      localStorage.setItem('variety_momo_owner_fcm_token', token);
 
       if (!saveRes || saveRes.success === false) {
         throw new Error(saveRes?.error || 'Database save failed');
@@ -678,7 +682,7 @@ export default function SettingsTab({ onOpenPushDiagnostic }) {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
               <div className="p-2.5 rounded-xl bg-stone-900 border border-stone-800">
                 <div className="text-stone-400 font-medium">Browser Permission</div>
                 <div className={`font-bold mt-0.5 ${
@@ -689,6 +693,13 @@ export default function SettingsTab({ onOpenPushDiagnostic }) {
                     : 'text-amber-400'
                 }`}>
                   {deviceInfo.permission.toUpperCase()}
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-stone-900 border border-stone-800">
+                <div className="text-stone-400 font-medium">FCM Support</div>
+                <div className={`font-bold mt-0.5 ${deviceInfo.supported ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {deviceInfo.supported ? 'SUPPORTED' : 'UNSUPPORTED'}
                 </div>
               </div>
 
@@ -712,12 +723,12 @@ export default function SettingsTab({ onOpenPushDiagnostic }) {
                 </div>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-stone-900 border border-stone-800">
-                <div className="text-stone-400 font-medium">Current FCM Token</div>
-                <div className="font-mono text-[10px] text-stone-300 truncate mt-0.5">
-                  {deviceInfo.currentToken
-                    ? `${deviceInfo.currentToken.substring(0, 8)}...${deviceInfo.currentToken.substring(deviceInfo.currentToken.length - 6)}`
-                    : 'None'}
+              <div className="p-2.5 rounded-xl bg-stone-900 border border-stone-800 col-span-2 sm:col-span-1">
+                <div className="text-stone-400 font-medium">Last Registration</div>
+                <div className="text-[10px] text-stone-300 truncate mt-0.5 font-medium">
+                  {deviceInfo.dbSub?.updated_at
+                    ? new Date(deviceInfo.dbSub.updated_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                    : 'Never'}
                 </div>
               </div>
             </div>

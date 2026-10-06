@@ -145,9 +145,12 @@ export async function showDeviceNotification({ title, body, icon, badge, tag, da
       const origin = window.location.origin;
       const notifTag = tag || (data?.order_number ? `order-${data.order_number}` : `momo-${Date.now()}`);
 
+      const isOwner = data?.recipient_type === 'OWNER';
+      const defaultIcon = isOwner ? `${origin}/variety-momo-logo.jpg` : `${origin}/variety-momo-notification-icon.png`;
+
       await swReg.showNotification(title || 'Variety Momo', {
         body: body || '',
-        icon: icon || `${origin}/variety-momo-notification-icon.png`,
+        icon: icon || defaultIcon,
         badge: badge || `${origin}/variety-momo-notification-badge.png`,
         tag: notifTag,
         renotify: true,

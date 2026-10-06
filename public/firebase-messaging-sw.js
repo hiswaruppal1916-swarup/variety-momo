@@ -7,7 +7,7 @@
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
-const CACHE_NAME = 'variety-momo-v10';
+const CACHE_NAME = 'variety-momo-v11';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -67,10 +67,14 @@ if (messaging) {
     const notifTag = payload.data?.tag || (orderNumber ? `order-${orderNumber}` : (payload.data?.notification_id ? `notif-${payload.data.notification_id}` : (isTest ? `test-${Date.now()}` : 'variety-momo-alert')));
 
     const origin = self.location.origin;
+    const isOwner = payload.data?.recipient_type === 'OWNER' || (!payload.data?.recipient_type && !payload.data?.order_id && !orderNumber);
+    const resolvedIcon = payload.data?.icon || (isOwner ? `${origin}/variety-momo-logo.jpg` : `${origin}/variety-momo-notification-icon.png`);
+    const resolvedBadge = payload.data?.badge || `${origin}/variety-momo-notification-badge.png`;
+
     const notificationOptions = {
       body,
-      icon: `${origin}/variety-momo-notification-icon.png`,
-      badge: `${origin}/variety-momo-notification-badge.png`,
+      icon: resolvedIcon,
+      badge: resolvedBadge,
       tag: notifTag,
       renotify: true,
       requireInteraction: true,

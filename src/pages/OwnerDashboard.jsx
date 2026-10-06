@@ -224,10 +224,14 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
             if (!mounted) return;
             if (token) {
               setOwnerFcmToken(token);
+              const lastStoredToken = localStorage.getItem('variety_momo_owner_fcm_token');
+              const isRotated = Boolean(lastStoredToken && lastStoredToken !== token);
               await registerPushSubscriptionInDatabase({
                 userType: 'OWNER',
-                fcmToken: token
+                fcmToken: token,
+                oldFcmToken: isRotated ? lastStoredToken : null
               });
+              localStorage.setItem('variety_momo_owner_fcm_token', token);
             }
           });
         }
@@ -258,10 +262,14 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
         const token = await getFcmToken();
         if (token) {
           setOwnerFcmToken(token);
+          const lastStoredToken = localStorage.getItem('variety_momo_owner_fcm_token');
+          const isRotated = Boolean(lastStoredToken && lastStoredToken !== token);
           await registerPushSubscriptionInDatabase({
             userType: 'OWNER',
-            fcmToken: token
+            fcmToken: token,
+            oldFcmToken: isRotated ? lastStoredToken : null
           });
+          localStorage.setItem('variety_momo_owner_fcm_token', token);
           showToast('Push alerts enabled for this device!');
         } else {
           showToast('Notification permission granted.');
