@@ -15,14 +15,23 @@ import {
   Building,
   Bell,
   BellRing,
-  Send
+  Send,
+  Smartphone,
+  RefreshCw
 } from 'lucide-react';
 import {
   getRestaurantSettings,
   updateRestaurantSettings,
   uploadStorageAsset
 } from '../../services/restaurantService';
-import { sendTestOwnerNotification } from '../../lib/firebase';
+import {
+  checkFcmSupport,
+  requestNotificationPermission,
+  getFcmToken,
+  registerPushSubscriptionInDatabase,
+  sendTestOwnerNotification
+} from '../../lib/firebase';
+import { supabase } from '../../lib/supabase';
 
 export default function SettingsTab({ onOpenPushDiagnostic }) {
   const [settings, setSettings] = useState(null);
@@ -30,6 +39,19 @@ export default function SettingsTab({ onOpenPushDiagnostic }) {
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+
+  // Current Device FCM Registration State (Requirements 2, 3, 6)
+  const [deviceInfo, setDeviceInfo] = useState({
+    supported: false,
+    permission: 'default',
+    swActive: false,
+    currentToken: null,
+    dbSub: null,
+    loading: true
+  });
+  const [registeringDevice, setRegisteringDevice] = useState(false);
+  const [regChecklist, setRegChecklist] = useState(null);
+  const [regMessage, setRegMessage] = useState(null);
 
   // Notification Preferences (Requirement 19)
   const [notifPrefs, setNotifPrefs] = useState(() => {
@@ -56,11 +78,126 @@ export default function SettingsTab({ onOpenPushDiagnostic }) {
     });
   };
 
+  const loadCurrentDeviceStatus = useCallback(async () => {
+    setDeviceInfo((prev) => ({ ...prev, loading: true }));
+    try {
+      const supported = await checkFcmSupport();
+      let swActive = false;
+      let perm = typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default';
+
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        const swReg = await navigator.serviceWorker.getRegistration('/');
+        swActive = Boolean(swReg);
+      }
+
+      let token = null;
+      let dbSub = null;
+      if (supported && perm === 'granted') {
+        token = await getFcmToken();
+        if (token) {
+          const { data } = await supabase
+            .from('push_subscriptions')
+            .select('id, user_type, is_active, updated_at')
+            .eq('fcm_token', token)
+            .maybeSingle();
+          dbSub = data;
+        }
+      }
+
+      setDeviceInfo({
+        supported,
+        permission: perm,
+        swActive,
+        currentToken: token,
+        dbSub,
+        loading: false
+      });
+    } catch (err) {
+      console.warn('Error loading device push status:', err);
+      setDeviceInfo((prev) => ({ ...prev, loading: false }));
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCurrentDeviceStatus();
+  }, [loadCurrentDeviceStatus]);
+
+  const handleRegisterCurrentDevice = async () => {
+    setRegisteringDevice(true);
+    setRegMessage(null);
+    setRegChecklist(null);
+    try {
+      const perm = await requestNotificationPermission();
+      if (perm !== 'granted') {
+        setRegMessage('❌ Notification permission denied in browser.');
+        await loadCurrentDeviceStatus();
+        return;
+      }
+
+      // Ensure SW is registered
+      let swActive = false;
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        let swReg = await navigator.serviceWorker.getRegistration('/');
+        if (!swReg) {
+          swReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
+        }
+        await navigator.serviceWorker.ready;
+        swActive = true;
+      }
+
+      const token = await getFcmToken();
+      if (!token) {
+        setRegMessage('⚠️ Could not generate FCM token for this device. Check browser console.');
+        await loadCurrentDeviceStatus();
+        return;
+      }
+
+      const saveRes = await registerPushSubscriptionInDatabase({
+        userType: 'OWNER',
+        fcmToken: token,
+        platform: 'WEB'
+      });
+
+      if (!saveRes || saveRes.success === false) {
+        throw new Error(saveRes?.error || 'Database save failed');
+      }
+
+      // Verify row in database immediately
+      const { data: verifiedRow, error: verifyErr } = await supabase
+        .from('push_subscriptions')
+        .select('id, user_type, is_active, updated_at')
+        .eq('fcm_token', token)
+        .maybeSingle();
+
+      if (verifyErr || !verifiedRow) {
+        throw new Error('Database verification query could not locate saved token.');
+      }
+
+      setRegChecklist([
+        { label: 'Permission granted', passed: perm === 'granted' },
+        { label: 'Service Worker registered', passed: swActive },
+        { label: 'Current FCM token generated', passed: Boolean(token) },
+        { label: 'Token saved in database', passed: Boolean(verifiedRow.id) },
+        { label: 'user_type = OWNER', passed: verifiedRow.user_type === 'OWNER' },
+        { label: 'is_active = true', passed: Boolean(verifiedRow.is_active) }
+      ]);
+
+      setRegMessage('✅ This device is now registered and ACTIVE for owner push notifications!');
+      await loadCurrentDeviceStatus();
+    } catch (err) {
+      console.error('Owner device registration failed:', err);
+      setRegMessage(`❌ Registration failed: ${err.message}`);
+    } finally {
+      setRegisteringDevice(false);
+    }
+  };
+
   const handleSendTestPush = async () => {
     setTestSending(true);
     setTestResult(null);
     try {
-      const res = await sendTestOwnerNotification();
+      // Send directly to current device token if available, verifying end-to-end
+      const res = await sendTestOwnerNotification(deviceInfo.currentToken || null);
       setTestResult(res);
     } catch (err) {
       setTestResult({ success: false, error: err.message });
@@ -465,12 +602,12 @@ export default function SettingsTab({ onOpenPushDiagnostic }) {
           </div>
         </div>
 
-        {/* SECTION 5: NOTIFICATION PREFERENCES & FCM CONTROLS (Requirement 19 & 30) */}
-        <div className="bg-stone-900/80 rounded-2xl border border-stone-800 p-5 space-y-4">
+        {/* SECTION 5: NOTIFICATION PREFERENCES & FCM CONTROLS (Requirements 2, 3, 6, 19) */}
+        <div className="bg-stone-900/80 rounded-2xl border border-stone-800 p-5 space-y-5">
           <div className="flex items-center justify-between border-b border-stone-800 pb-2">
             <div className="flex items-center gap-2 text-brand-400 font-bold uppercase tracking-wider text-xs">
               <Bell className="w-4 h-4" />
-              <span>Owner Push Notification Preferences</span>
+              <span>Owner Device Push Notifications & Settings</span>
             </div>
             {onOpenPushDiagnostic && (
               <button
@@ -479,19 +616,170 @@ export default function SettingsTab({ onOpenPushDiagnostic }) {
                 className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold border border-stone-700 transition-colors"
               >
                 <BellRing className="w-3.5 h-3.5 text-brand-400" />
-                <span>Advanced Diagnostics</span>
+                <span>All Devices Diagnostic</span>
               </button>
             )}
           </div>
 
+          {/* Current Device Real Database Status Card */}
+          <div className="p-4 rounded-2xl bg-stone-950 border border-stone-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Smartphone className="w-4 h-4 text-brand-400" />
+                <span className="text-xs font-bold text-white">This Device Status</span>
+              </div>
+              <button
+                type="button"
+                onClick={loadCurrentDeviceStatus}
+                className="text-stone-400 hover:text-white text-xs flex items-center gap-1 transition-colors"
+              >
+                <RefreshCw className={`w-3 h-3 ${deviceInfo.loading ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+              <div className="p-2.5 rounded-xl bg-stone-900 border border-stone-800">
+                <div className="text-stone-400 font-medium">Browser Permission</div>
+                <div className={`font-bold mt-0.5 ${
+                  deviceInfo.permission === 'granted'
+                    ? 'text-emerald-400'
+                    : deviceInfo.permission === 'denied'
+                    ? 'text-rose-400'
+                    : 'text-amber-400'
+                }`}>
+                  {deviceInfo.permission.toUpperCase()}
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-stone-900 border border-stone-800">
+                <div className="text-stone-400 font-medium">Service Worker</div>
+                <div className={`font-bold mt-0.5 ${deviceInfo.swActive ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {deviceInfo.swActive ? 'REGISTERED' : 'PENDING'}
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-stone-900 border border-stone-800">
+                <div className="text-stone-400 font-medium">Database Subscription</div>
+                <div className={`font-bold mt-0.5 ${
+                  deviceInfo.dbSub?.is_active
+                    ? 'text-emerald-400'
+                    : deviceInfo.dbSub
+                    ? 'text-amber-400'
+                    : 'text-stone-500'
+                }`}>
+                  {deviceInfo.dbSub?.is_active ? 'ACTIVE OWNER' : deviceInfo.dbSub ? 'INACTIVE' : 'NOT FOUND'}
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-stone-900 border border-stone-800">
+                <div className="text-stone-400 font-medium">Current FCM Token</div>
+                <div className="font-mono text-[10px] text-stone-300 truncate mt-0.5">
+                  {deviceInfo.currentToken
+                    ? `${deviceInfo.currentToken.substring(0, 8)}...${deviceInfo.currentToken.substring(deviceInfo.currentToken.length - 6)}`
+                    : 'None'}
+                </div>
+              </div>
+            </div>
+
+            {/* Registration action buttons */}
+            <div className="pt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={registeringDevice}
+                onClick={handleRegisterCurrentDevice}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 active:scale-95 text-white text-xs font-bold transition-all disabled:opacity-50 shadow-md"
+              >
+                {registeringDevice ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Registering Device...</span>
+                  </>
+                ) : (
+                  <>
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>Enable & Register This Device</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                disabled={testSending}
+                onClick={handleSendTestPush}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 active:scale-95 text-stone-200 text-xs font-bold border border-stone-700 transition-all disabled:opacity-50"
+              >
+                {testSending ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Sending Test...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5 text-brand-400" />
+                    <span>Direct Device Test Push</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {regMessage && (
+              <div className="p-2.5 rounded-xl bg-stone-900 border border-stone-800 text-xs font-medium text-stone-200">
+                {regMessage}
+              </div>
+            )}
+
+            {regChecklist && (
+              <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-xs space-y-1.5">
+                <div className="font-bold text-emerald-400 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Owner Device Registration:</span>
+                </div>
+                {regChecklist.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-[11px] text-stone-200 pl-1">
+                    <span className="text-emerald-400 font-bold">✓</span>
+                    <span>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {testResult && (
+              <div className={`p-3 rounded-xl text-xs flex flex-col gap-1.5 ${
+                testResult.success && testResult.sentCount > 0
+                  ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                  : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+              }`}>
+                <div className="flex items-center gap-2 font-bold">
+                  {testResult.success && testResult.sentCount > 0 ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Google FCM HTTP 200: Push accepted! Check your phone notification tray now.</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span>Push dispatch warning: {testResult.error || testResult.message || 'No active device received push'}</span>
+                    </>
+                  )}
+                </div>
+                {testResult.results?.[0]?.result?.name && (
+                  <div className="text-[10px] font-mono text-stone-400 break-all">
+                    Message ID: {testResult.results[0].result.name}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <p className="text-xs text-stone-400">
-            Control which device push alerts arrive on your phone/browser. In-app notification center history will always remain preserved.
+            Select which event push alerts are delivered to your registered owner devices. In-app notification center records all events automatically.
           </p>
 
           <div className="space-y-3 pt-1">
             {[
-              { key: 'new_order', label: 'New Order Alerts', desc: 'Push alert immediately when a customer submits a new order' },
-              { key: 'payment_submitted', label: 'Payment Submitted Alerts', desc: 'Push alert when a customer enters PhonePe UTR payment reference' },
+              { key: 'new_order', label: 'New Order Alerts', desc: 'Push alert immediately when a customer places a Dine-In or Home Delivery order' },
+              { key: 'payment_submitted', label: 'Payment Verification Required Alerts', desc: 'Push alert when a Home Delivery customer submits PhonePe advance reference' },
               { key: 'customer_cancellation', label: 'Customer Cancellation Alerts', desc: 'Push alert if an order is cancelled or modified' },
               { key: 'order_status_events', label: 'Order Status Events', desc: 'Push alerts for kitchen milestone transitions' },
               { key: 'payment_verified', label: 'Payment Verification Confirmations', desc: 'Push alert confirmations when payment verification is recorded' }
@@ -513,52 +801,6 @@ export default function SettingsTab({ onOpenPushDiagnostic }) {
               </div>
             ))}
           </div>
-
-          {/* Test Push Action */}
-          <div className="pt-3 border-t border-stone-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <div className="text-xs font-bold text-stone-200">Send Test Push Notification</div>
-              <div className="text-[11px] text-stone-400">Verifies server-side Firebase FCM delivery to all active owner devices.</div>
-            </div>
-            <button
-              type="button"
-              disabled={testSending}
-              onClick={handleSendTestPush}
-              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50"
-            >
-              {testSending ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Sending FCM Push...</span>
-                </>
-              ) : (
-                <>
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Send Test Notification</span>
-                </>
-              )}
-            </button>
-          </div>
-
-          {testResult && (
-            <div className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
-              testResult.success
-                ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
-                : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
-            }`}>
-              {testResult.success ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Test push sent successfully to {testResult.sentCount ?? 0} active device(s)!</span>
-                </>
-              ) : (
-                <>
-                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                  <span>Push dispatch error: {testResult.error || 'Failed to dispatch'}</span>
-                </>
-              )}
-            </div>
-          )}
         </div>
       </form>
     </div>

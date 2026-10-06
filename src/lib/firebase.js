@@ -147,8 +147,8 @@ export async function showDeviceNotification({ title, body, icon, badge, tag, da
 
       await swReg.showNotification(title || 'Variety Momo', {
         body: body || '',
-        icon: icon || `${origin}/pwa-192x192.png`,
-        badge: badge || `${origin}/favicon-96x96.png`,
+        icon: icon || `${origin}/variety-momo-notification-icon.png`,
+        badge: badge || `${origin}/variety-momo-notification-badge.png`,
         tag: notifTag,
         renotify: true,
         requireInteraction: true,
@@ -201,6 +201,7 @@ export async function registerPushSubscriptionInDatabase({
   orderNumber = null,
   trackingToken = null,
   fcmToken,
+  oldFcmToken = null,
   platform = 'WEB'
 }) {
   if (!fcmToken) return { success: false, error: 'No token' };
@@ -210,10 +211,11 @@ export async function registerPushSubscriptionInDatabase({
       const { data, error } = await supabase.rpc('register_owner_push_subscription', {
         p_fcm_token: fcmToken,
         p_device_id: navigator.userAgent.substring(0, 80),
-        p_platform: platform
+        p_platform: platform,
+        p_old_fcm_token: oldFcmToken
       });
       if (error) throw error;
-      return data;
+      return { success: true, ...data };
     } else if (userType === 'CUSTOMER' && orderNumber && trackingToken) {
       const { data, error } = await supabase.rpc('register_customer_push_subscription', {
         p_order_number: orderNumber,
@@ -223,7 +225,7 @@ export async function registerPushSubscriptionInDatabase({
         p_platform: platform
       });
       if (error) throw error;
-      return data;
+      return { success: true, ...data };
     }
   } catch (err) {
     console.error('[FCM] Failed to store push subscription in database:', err);

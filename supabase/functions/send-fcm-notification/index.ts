@@ -181,8 +181,8 @@ Deno.serve(async (req: Request) => {
       : (isTest ? `test-${Date.now()}` : (eventKey || 'variety-momo-alert'));
 
     const appOrigin = data?.site_url || data?.origin || "https://variety-momo-jq8j.vercel.app";
-    const iconUrl = `${appOrigin}/variety-momo-logo.jpg`;
-    const badgeUrl = `${appOrigin}/favicon-96x96.png`;
+    const iconUrl = `${appOrigin}/variety-momo-notification-icon.png`;
+    const badgeUrl = `${appOrigin}/variety-momo-notification-badge.png`;
 
     for (const fcmToken of targetTokens) {
       // 1. Check idempotency: if this event was already delivered to this token, skip (unless test)
@@ -316,7 +316,9 @@ Deno.serve(async (req: Request) => {
           fcmRes.status === 404 ||
           fcmResult?.error?.status === "NOT_FOUND" ||
           fcmResult?.error?.message?.includes("UNREGISTERED") ||
-          fcmResult?.error?.details?.[0]?.errorCode === "UNREGISTERED"
+          fcmResult?.error?.message?.includes("NotRegistered") ||
+          fcmResult?.error?.details?.[0]?.errorCode === "UNREGISTERED" ||
+          fcmResult?.error?.details?.[0]?.errorCode === "NotRegistered"
         ) {
           // Auto-deactivate invalid/expired FCM tokens
           if (supabaseUrl && supabaseServiceKey) {

@@ -22,7 +22,6 @@ import {
   checkFcmSupport,
   requestNotificationPermission,
   getFcmToken,
-  onForegroundMessage,
   registerPushSubscriptionInDatabase,
   unregisterPushSubscription
 } from '../lib/firebase';
@@ -235,16 +234,18 @@ export default function OwnerDashboard({ onNavigate, initialOrderId = null }) {
       }
     });
 
-    const unsubscribeForeground = onForegroundMessage((payload) => {
-      const title = payload.notification?.title || payload.data?.title || 'Variety Momo Alert';
-      const body = payload.notification?.body || payload.data?.body || '';
+    const handleFcmMessage = (e) => {
+      const payload = e.detail;
+      const title = payload?.notification?.title || payload?.data?.title || 'Variety Momo Alert';
+      const body = payload?.notification?.body || payload?.data?.body || '';
       showToast(`${title}: ${body}`);
       loadDashboardData();
-    });
+    };
+    window.addEventListener('variety_momo_fcm_message', handleFcmMessage);
 
     return () => {
       mounted = false;
-      if (typeof unsubscribeForeground === 'function') unsubscribeForeground();
+      window.removeEventListener('variety_momo_fcm_message', handleFcmMessage);
     };
   }, [ownerProfile, loadDashboardData]);
 

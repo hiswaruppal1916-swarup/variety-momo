@@ -76,31 +76,77 @@ export default function PushDiagnosticModal({ isOpen, onClose }) {
     }
   }, [isOpen]);
 
+  const [registrationChecklist, setRegistrationChecklist] = useState(null);
+
   const handleRegisterToken = async () => {
     setLoading(true);
     setActionMsg(null);
+    setRegistrationChecklist(null);
     try {
       const perm = await requestNotificationPermission();
       setPermission(perm);
-      if (perm === 'granted') {
-        const token = await getFcmToken();
-        if (token) {
-          setCurrentToken(token);
-          await registerPushSubscriptionInDatabase({
-            userType: 'OWNER',
-            fcmToken: token,
-            platform: 'WEB'
-          });
-          setActionMsg('✅ FCM Token generated and saved to push_subscriptions table.');
-          await loadDiagnostics();
-        } else {
-          setActionMsg('⚠️ Failed to generate FCM Token. Check browser console.');
-        }
-      } else {
-        setActionMsg('❌ Notification permission denied.');
+      if (perm !== 'granted') {
+        setActionMsg('❌ Notification permission was not granted (status: ' + perm + ').');
+        setLoading(false);
+        return;
       }
+
+      // Check service worker
+      let swActive = false;
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        let swReg = await navigator.serviceWorker.getRegistration('/');
+        if (!swReg) {
+          swReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
+        }
+        await navigator.serviceWorker.ready;
+        swActive = true;
+        setSwRegistered(true);
+      }
+
+      const token = await getFcmToken();
+      if (!token) {
+        setActionMsg('⚠️ Failed to generate FCM Token. Please check browser notification permissions.');
+        setLoading(false);
+        return;
+      }
+
+      setCurrentToken(token);
+
+      const saveResult = await registerPushSubscriptionInDatabase({
+        userType: 'OWNER',
+        fcmToken: token,
+        platform: 'WEB'
+      });
+
+      if (!saveResult || saveResult.success === false) {
+        throw new Error(saveResult?.error || 'Database RPC registration returned error');
+      }
+
+      // Immediately verify the database row directly
+      const { data: verifiedRow, error: verifyErr } = await supabase
+        .from('push_subscriptions')
+        .select('id, user_type, is_active, updated_at, device_id')
+        .eq('fcm_token', token)
+        .maybeSingle();
+
+      if (verifyErr || !verifiedRow) {
+        throw new Error(verifyErr?.message || 'Verification query failed to locate saved subscription row');
+      }
+
+      setRegistrationChecklist([
+        { label: 'Permission granted', passed: perm === 'granted' },
+        { label: 'Service Worker registered (/firebase-messaging-sw.js)', passed: swActive },
+        { label: 'Current FCM token generated', passed: Boolean(token) },
+        { label: 'Token saved in database', passed: Boolean(verifiedRow.id) },
+        { label: 'user_type = OWNER', passed: verifiedRow.user_type === 'OWNER' },
+        { label: 'is_active = true', passed: Boolean(verifiedRow.is_active) }
+      ]);
+
+      setActionMsg('✅ Owner device registered and confirmed ACTIVE in database!');
+      await loadDiagnostics();
     } catch (err) {
-      setActionMsg(`❌ Error: ${err.message}`);
+      console.error('Registration failed:', err);
+      setActionMsg(`❌ Registration Error: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -175,6 +221,23 @@ export default function PushDiagnosticModal({ isOpen, onClose }) {
           {actionMsg && (
             <div className="p-3 rounded-xl bg-stone-800/90 border border-stone-700 text-xs font-medium text-stone-200">
               {actionMsg}
+            </div>
+          )}
+
+          {registrationChecklist && (
+            <div className="p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-xs space-y-2 animate-in fade-in">
+              <div className="font-bold text-emerald-400 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4" />
+                <span>Owner Device Registration Verified</span>
+              </div>
+              <div className="space-y-1.5 pt-1">
+                {registrationChecklist.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-[11px] text-stone-200">
+                    <span className="text-emerald-400 font-bold">✓</span>
+                    <span>{item.label}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

@@ -7,7 +7,7 @@
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
-const CACHE_NAME = 'variety-momo-v8';
+const CACHE_NAME = 'variety-momo-v10';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -15,6 +15,8 @@ const PRECACHE_ASSETS = [
   '/manifest.json',
   '/variety-momo-logo.jpg',
   '/variety-momo-logo.png',
+  '/variety-momo-notification-icon.png',
+  '/variety-momo-notification-badge.png',
   '/favicon.ico',
   '/favicon-96x96.png',
   '/favicon-128x128.png',
@@ -67,8 +69,8 @@ if (messaging) {
     const origin = self.location.origin;
     const notificationOptions = {
       body,
-      icon: `${origin}/variety-momo-logo.jpg`,
-      badge: `${origin}/favicon-96x96.png`,
+      icon: `${origin}/variety-momo-notification-icon.png`,
+      badge: `${origin}/variety-momo-notification-badge.png`,
       tag: notifTag,
       renotify: true,
       requireInteraction: true,
