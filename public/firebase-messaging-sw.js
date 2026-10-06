@@ -79,7 +79,10 @@ if (messaging) {
         click_action: clickAction,
         url: clickAction,
         order_number: orderNumber,
-        order_id: payload.data?.order_id
+        order_id: payload.data?.order_id,
+        notification_id: payload.data?.notification_id,
+        recipient_type: payload.data?.recipient_type,
+        event_key: payload.data?.event_key
       },
       actions: [
         {

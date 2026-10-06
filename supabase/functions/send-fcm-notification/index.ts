@@ -163,28 +163,68 @@ Deno.serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-    // Construct unique event key for idempotency (allow test notifications to send every time)
-    const isTest = data?.is_test === true || title.toLowerCase().includes('test');
-    const eventKey = isTest
-      ? `test_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
-      : (data?.event_key ||
+    // Construct unique event key for idempotency and notification tag
+    const isTest = data?.is_test === true || data?.is_test === 'true' || title.toLowerCase().includes('test');
+    const recipientType = data?.recipient_type || 'UNKNOWN';
+
+    let eventKey: string | null = null;
+    let notifTag: string = 'variety-momo-alert';
+
+    if (isTest) {
+      eventKey = `TEST_${recipientType}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      notifTag = `test-${recipientType.toLowerCase()}-${Date.now()}`;
+    } else if (recipientType === 'OWNER') {
+      // Precise, non-colliding OWNER event key and notification tag (Sections 2, 9, 10)
+      const eventType = data?.event_type ||
+        (title.toLowerCase().includes('new') ? 'NEW_ORDER' :
+         title.toLowerCase().includes('payment') ? 'PAYMENT_SUBMITTED' :
+         title.toLowerCase().includes('accept') ? 'ORDER_ACCEPTED' :
+         title.toLowerCase().includes('prepar') ? 'PREPARING' :
+         title.toLowerCase().includes('ready') ? 'READY' :
+         title.toLowerCase().includes('cancel') ? 'CANCELLED' : 'ORDER_UPDATE');
+
+      const orderIdentifier = data?.order_id || data?.order_number || '';
+      if (data?.event_key) {
+        eventKey = data.event_key;
+      } else if (orderIdentifier) {
+        eventKey = `OWNER_${eventType}:${orderIdentifier}`;
+      } else if (data?.notification_id) {
+        eventKey = `OWNER_NOTIF:${data.notification_id}`;
+      } else {
+        eventKey = `OWNER_EVENT_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      }
+
+      // Event-specific tag so OWNER notifications never replace each other (Section 9)
+      notifTag = data?.tag ||
+        (orderIdentifier
+          ? `owner-order-${orderIdentifier}-${eventType}-${data?.notification_id || Date.now()}`
+          : (data?.notification_id ? `owner-${data.notification_id}` : `owner-${Date.now()}`));
+    } else {
+      // CUSTOMER NOTIFICATIONS: KEEP WORKING BEHAVIOR EXACTLY AS IS (CRITICAL RULE)
+      eventKey = data?.event_key ||
         (data?.notification_id
           ? `notif_${data.notification_id}`
           : data?.order_id
-          ? `${data.order_id}:${data?.recipient_type || 'ALL'}:${title}`
-          : null));
+          ? `${data.order_id}:${recipientType}:${title}`
+          : null);
 
-    const notifTag = data?.order_number
-      ? `order-${data.order_number}`
-      : data?.notification_id
-      ? `notif-${data.notification_id}`
-      : (isTest ? `test-${Date.now()}` : (eventKey || 'variety-momo-alert'));
+      notifTag = data?.tag ||
+        (data?.order_number
+          ? `order-${data.order_number}`
+          : data?.notification_id
+          ? `notif-${data.notification_id}`
+          : (eventKey || 'variety-momo-alert'));
+    }
 
     const appOrigin = data?.site_url || data?.origin || "https://variety-momo-jq8j.vercel.app";
     const iconUrl = `${appOrigin}/variety-momo-notification-icon.png`;
     const badgeUrl = `${appOrigin}/variety-momo-notification-badge.png`;
 
     for (const fcmToken of targetTokens) {
+      const maskedToken = fcmToken.length > 12
+        ? `${fcmToken.substring(0, 6)}...${fcmToken.substring(fcmToken.length - 4)}`
+        : fcmToken;
+
       // 1. Check idempotency: if this event was already delivered to this token, skip (unless test)
       if (!isTest && supabaseUrl && supabaseServiceKey && eventKey) {
         try {
@@ -200,9 +240,9 @@ Deno.serve(async (req: Request) => {
           if (checkRes.ok) {
             const existing = await checkRes.json();
             if (Array.isArray(existing) && existing.length > 0) {
-              console.log(`[FCM] Skipped duplicate send for ${eventKey} to token ${fcmToken.substring(0, 10)}...`);
+              console.log(`[FCM] Skipped duplicate send for ${eventKey} to token ${maskedToken}`);
               results.push({
-                token: fcmToken.substring(0, 12) + "...",
+                token: maskedToken,
                 status: 200,
                 success: true,
                 skipped: true,
@@ -245,7 +285,8 @@ Deno.serve(async (req: Request) => {
                 tracking_token: data?.tracking_token || "",
                 notification_id: data?.notification_id || "",
                 event_key: eventKey || "",
-                recipient_type: data?.recipient_type || ""
+                recipient_type: recipientType,
+                tag: notifTag
               }
             },
             fcm_options: {
@@ -272,7 +313,7 @@ Deno.serve(async (req: Request) => {
             tracking_token: String(data?.tracking_token || ""),
             notification_id: String(data?.notification_id || ""),
             event_key: String(eventKey || ""),
-            recipient_type: String(data?.recipient_type || ""),
+            recipient_type: String(recipientType),
             tag: String(notifTag),
             timestamp: String(Date.now())
           }
@@ -295,22 +336,26 @@ Deno.serve(async (req: Request) => {
         if (isSuccess) {
           // Record successful delivery for idempotency
           if (supabaseUrl && supabaseServiceKey && eventKey) {
-            fetch(`${supabaseUrl}/rest/v1/notification_deliveries`, {
-              method: "POST",
-              headers: {
-                "apikey": supabaseServiceKey,
-                "Authorization": `Bearer ${supabaseServiceKey}`,
-                "Content-Type": "application/json",
-                "Prefer": "resolution=ignore-duplicates"
-              },
-              body: JSON.stringify({
-                event_key: eventKey,
-                fcm_token: fcmToken,
-                notification_id: data?.notification_id || null,
-                recipient_type: data?.recipient_type || "UNKNOWN",
-                status: "SENT"
-              })
-            }).catch(() => {});
+            try {
+              await fetch(`${supabaseUrl}/rest/v1/notification_deliveries`, {
+                method: "POST",
+                headers: {
+                  "apikey": supabaseServiceKey,
+                  "Authorization": `Bearer ${supabaseServiceKey}`,
+                  "Content-Type": "application/json",
+                  "Prefer": "resolution=ignore-duplicates"
+                },
+                body: JSON.stringify({
+                  event_key: eventKey,
+                  fcm_token: fcmToken,
+                  notification_id: data?.notification_id || null,
+                  recipient_type: recipientType,
+                  status: "SENT"
+                })
+              });
+            } catch (recErr) {
+              console.warn("[FCM] Delivery record save warning:", recErr);
+            }
           }
         } else if (
           fcmRes.status === 404 ||
@@ -320,29 +365,34 @@ Deno.serve(async (req: Request) => {
           fcmResult?.error?.details?.[0]?.errorCode === "UNREGISTERED" ||
           fcmResult?.error?.details?.[0]?.errorCode === "NotRegistered"
         ) {
-          // Auto-deactivate invalid/expired FCM tokens
+          // Auto-deactivate ONLY this specific invalid/expired FCM token
+          console.log(`[FCM] Token rejected as UNREGISTERED: ${maskedToken}. Marking inactive.`);
           if (supabaseUrl && supabaseServiceKey) {
-            fetch(`${supabaseUrl}/rest/v1/push_subscriptions?fcm_token=eq.${encodeURIComponent(fcmToken)}`, {
-              method: "PATCH",
-              headers: {
-                "apikey": supabaseServiceKey,
-                "Authorization": `Bearer ${supabaseServiceKey}`,
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({ is_active: false, updated_at: new Date().toISOString() })
-            }).catch(() => {});
+            try {
+              await fetch(`${supabaseUrl}/rest/v1/push_subscriptions?fcm_token=eq.${encodeURIComponent(fcmToken)}`, {
+                method: "PATCH",
+                headers: {
+                  "apikey": supabaseServiceKey,
+                  "Authorization": `Bearer ${supabaseServiceKey}`,
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ is_active: false, updated_at: new Date().toISOString() })
+              });
+            } catch (patchErr) {
+              console.warn("[FCM] Token deactivation PATCH warning:", patchErr);
+            }
           }
         }
 
         results.push({
-          token: fcmToken.substring(0, 12) + "...",
+          token: maskedToken,
           status: fcmRes.status,
           success: isSuccess,
           result: fcmResult
         });
       } catch (err: any) {
         results.push({
-          token: fcmToken.substring(0, 12) + "...",
+          token: maskedToken,
           success: false,
           error: err.message
         });

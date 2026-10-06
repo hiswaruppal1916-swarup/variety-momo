@@ -328,10 +328,18 @@ export async function triggerPushNotification({
       import.meta.env.VITE_SUPABASE_ANON_KEY ||
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvc2Nlb2dxaHdramNrc215cmpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxMzU0MjAsImV4cCI6MjEwNDcxMTQyMH0.20vQCjfZjeHtzFacGEkaY3_F8IudfPADtzBr1fVsji8';
 
-    const isTest = specificToken !== null || title.toLowerCase().includes('test');
-    const eventKey = isTest
-      ? `test_${Date.now()}`
-      : (orderId ? `${orderId}:${recipientType}:${eventType || title}` : null);
+    const isTest = specificToken !== null || title.toLowerCase().includes('test') || eventType === 'TEST_ALERT';
+    let eventKey = null;
+
+    if (isTest) {
+      eventKey = `TEST_${recipientType}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    } else if (recipientType === 'OWNER') {
+      const eventName = eventType || (title.toLowerCase().includes('payment') ? 'PAYMENT_SUBMITTED' : title.toLowerCase().includes('new') ? 'NEW_ORDER' : 'ORDER_UPDATE');
+      eventKey = orderId ? `OWNER_${eventName}:${orderId}` : `OWNER_EVENT_${Date.now()}`;
+    } else {
+      // CUSTOMER NOTIFICATIONS: UNCHANGED LOGIC
+      eventKey = orderId ? `${orderId}:${recipientType}:${eventType || title}` : null;
+    }
 
     const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://variety-momo.firebaseapp.com';
 
@@ -353,6 +361,7 @@ export async function triggerPushNotification({
           click_action: url,
           url,
           recipient_type: recipientType,
+          event_type: eventType || (isTest ? 'TEST' : 'ORDER'),
           event_key: eventKey || '',
           is_test: isTest,
           site_url: siteUrl
@@ -387,9 +396,10 @@ export async function triggerPushNotification({
 export async function sendTestOwnerNotification(specificToken = null) {
   const timeStr = new Date().toLocaleTimeString('en-IN', { hour12: true });
   return await triggerPushNotification({
-    title: '🔔 Variety Momo',
+    title: '🔔 Variety Momo Test Alert',
     body: `FCM Test Notification: This is a test push notification delivered at ${timeStr}.`,
     recipientType: 'OWNER',
+    eventType: 'TEST_ALERT',
     specificToken,
     url: '/owner-dashboard'
   });

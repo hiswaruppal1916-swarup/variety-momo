@@ -628,14 +628,54 @@ export default function SettingsTab({ onOpenPushDiagnostic }) {
                 <Smartphone className="w-4 h-4 text-brand-400" />
                 <span className="text-xs font-bold text-white">This Device Status</span>
               </div>
-              <button
-                type="button"
-                onClick={loadCurrentDeviceStatus}
-                className="text-stone-400 hover:text-white text-xs flex items-center gap-1 transition-colors"
-              >
-                <RefreshCw className={`w-3 h-3 ${deviceInfo.loading ? 'animate-spin' : ''}`} />
-                <span>Refresh</span>
-              </button>
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const isRealEnabled =
+                    deviceInfo.permission === 'granted' &&
+                    Boolean(deviceInfo.currentToken) &&
+                    Boolean(deviceInfo.dbSub?.is_active) &&
+                    deviceInfo.dbSub?.user_type === 'OWNER' &&
+                    Boolean(deviceInfo.swActive);
+
+                  let statusText = 'Notifications Enabled';
+                  if (!isRealEnabled) {
+                    if (deviceInfo.permission !== 'granted') {
+                      statusText = deviceInfo.permission === 'denied' ? 'Permission Denied' : 'Permission Required';
+                    } else if (!deviceInfo.swActive) {
+                      statusText = 'Service Worker Inactive';
+                    } else if (!deviceInfo.currentToken) {
+                      statusText = 'FCM Token Missing';
+                    } else if (!deviceInfo.dbSub) {
+                      statusText = 'Not Registered';
+                    } else if (deviceInfo.dbSub.user_type !== 'OWNER') {
+                      statusText = 'Customer Token (Re-register)';
+                    } else if (!deviceInfo.dbSub.is_active) {
+                      statusText = 'Token Inactive';
+                    } else {
+                      statusText = 'Disabled';
+                    }
+                  }
+
+                  return (
+                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+                      isRealEnabled
+                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                        : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                    }`}>
+                      <span className={`w-2 h-2 rounded-full ${isRealEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                      <span>{statusText}</span>
+                    </div>
+                  );
+                })()}
+                <button
+                  type="button"
+                  onClick={loadCurrentDeviceStatus}
+                  className="text-stone-400 hover:text-white text-xs flex items-center gap-1 transition-colors p-1"
+                  title="Refresh device push status"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${deviceInfo.loading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
