@@ -7,7 +7,7 @@
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
-const CACHE_NAME = 'variety-momo-v7';
+const CACHE_NAME = 'variety-momo-v8';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -60,16 +60,17 @@ if (messaging) {
       payload.data?.link ||
       payload.fcmOptions?.link ||
       '/';
+    const isTest = payload.data?.is_test === 'true' || payload.data?.is_test === true || title.toLowerCase().includes('test');
     const orderNumber = payload.data?.order_number || '';
-    const notifTag = orderNumber ? `order-${orderNumber}` : (payload.data?.notification_id ? `notif-${payload.data.notification_id}` : 'variety-momo-alert');
+    const notifTag = payload.data?.tag || (orderNumber ? `order-${orderNumber}` : (payload.data?.notification_id ? `notif-${payload.data.notification_id}` : (isTest ? `test-${Date.now()}` : 'variety-momo-alert')));
 
     const origin = self.location.origin;
     const notificationOptions = {
       body,
-      icon: `${origin}/pwa-192x192.png`,
+      icon: `${origin}/variety-momo-logo.jpg`,
       badge: `${origin}/favicon-96x96.png`,
       tag: notifTag,
-      renotify: false,
+      renotify: true,
       requireInteraction: true,
       vibrate: [200, 100, 200],
       data: {
@@ -86,16 +87,7 @@ if (messaging) {
       ]
     };
 
-    // Check if notification with this tag is already visible.
-    // If browser/SDK already displayed it, skip to avoid duplicate.
-    // If not displayed yet, display it now so Android system notification always appears.
-    return self.registration.getNotifications({ tag: notifTag }).then((existing) => {
-      if (existing && existing.length > 0) {
-        console.log('[FCM-SW] Notification already displayed with tag:', notifTag);
-        return;
-      }
-      return self.registration.showNotification(title, notificationOptions);
-    });
+    return self.registration.showNotification(title, notificationOptions);
   });
 }
 
